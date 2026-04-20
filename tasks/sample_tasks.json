@@ -1,0 +1,43 @@
+[
+  {
+    "name": "two_sum",
+    "problem": "Given a list of integers `nums` and an integer `target`, return the indices (i, j) with i < j such that nums[i] + nums[j] == target. You may assume exactly one solution exists.",
+    "signature": "def two_sum(nums: list[int], target: int) -> tuple[int, int]:",
+    "public_tests": [
+      "assert two_sum([2, 7, 11, 15], 9) == (0, 1)",
+      "assert two_sum([3, 2, 4], 6) == (1, 2)"
+    ],
+    "hidden_tests": [
+      "assert two_sum([3, 3], 6) == (0, 1)",
+      "assert two_sum([-1, -2, -3, -4, -5], -8) == (2, 4)"
+    ]
+  },
+  {
+    "name": "is_palindrome",
+    "problem": "Return True iff `s` is a palindrome when considering only alphanumeric characters and ignoring case.",
+    "signature": "def is_palindrome(s: str) -> bool:",
+    "public_tests": [
+      "assert is_palindrome('A man, a plan, a canal: Panama') is True",
+      "assert is_palindrome('race a car') is False"
+    ],
+    "hidden_tests": [
+      "assert is_palindrome('') is True",
+      "assert is_palindrome('.,') is True",
+      "assert is_palindrome('0P') is False"
+    ]
+  },
+  {
+    "name": "merge_intervals",
+    "problem": "Given a list of intervals [start, end], merge all overlapping intervals and return the result sorted by start.",
+    "signature": "def merge_intervals(intervals: list[list[int]]) -> list[list[int]]:",
+    "public_tests": [
+      "assert merge_intervals([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]",
+      "assert merge_intervals([[1,4],[4,5]]) == [[1,5]]"
+    ],
+    "hidden_tests": [
+      "assert merge_intervals([]) == []",
+      "assert merge_intervals([[1,4],[0,4]]) == [[0,4]]",
+      "assert merge_intervals([[1,4],[2,3]]) == [[1,4]]"
+    ]
+  }
+]

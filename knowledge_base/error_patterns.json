@@ -1,0 +1,62 @@
+[
+  {
+    "error": "IndexError: list index out of range",
+    "cause": "Access an index that is past the end of a list, often off-by-one on the loop bound or empty-list edge case.",
+    "fix": "Check `len(xs)` before indexing, and guard the empty-list case explicitly. Prefer `for x in xs:` over indexed loops."
+  },
+  {
+    "error": "KeyError",
+    "cause": "Reading a dictionary key that does not exist.",
+    "fix": "Use `d.get(k, default)` or test `k in d` before access; when counting, use `collections.Counter` or `defaultdict(int)`."
+  },
+  {
+    "error": "TypeError: unsupported operand type(s)",
+    "cause": "Mixing incompatible types, e.g. adding str and int, or calling a method on None.",
+    "fix": "Cast explicitly with `int()` / `str()`; ensure every branch of your function returns the intended type; handle None early."
+  },
+  {
+    "error": "RecursionError: maximum recursion depth exceeded",
+    "cause": "Recursion has no base case, or the base case is not reachable with the actual input size.",
+    "fix": "Add / broaden the base case; consider converting tail recursion to an iterative loop or memoizing with `functools.lru_cache`."
+  },
+  {
+    "error": "AssertionError on edge case (empty input)",
+    "cause": "Algorithm assumes at least one element (e.g. indexing `xs[0]`, dividing by `len(xs)`).",
+    "fix": "Handle the empty-input case first (`if not xs: return ...`) with the semantically correct default."
+  },
+  {
+    "error": "AssertionError on boundary (min/max, first/last element)",
+    "cause": "Off-by-one in a range or slice, or a wrong `<=` vs `<` comparison.",
+    "fix": "Re-check loop bounds against the spec; unit-test single-element input and the exact boundary value."
+  },
+  {
+    "error": "AssertionError on negative / zero input",
+    "cause": "Function was only implemented for strictly positive inputs.",
+    "fix": "Add an explicit branch for 0 and negative values; re-read the problem statement for the declared input domain."
+  },
+  {
+    "error": "ValueError: invalid literal for int() with base 10",
+    "cause": "Converting a non-numeric string to int.",
+    "fix": "Strip whitespace, validate with `.isdigit()` or `try/except ValueError`, and decide the correct behaviour for malformed input."
+  },
+  {
+    "error": "ZeroDivisionError",
+    "cause": "Dividing by a quantity that can be zero (often `len(xs)` on empty input).",
+    "fix": "Guard the divisor; return a documented default for the degenerate case."
+  },
+  {
+    "error": "AttributeError: 'NoneType' object has no attribute",
+    "cause": "Using the return value of a function that fell through without a `return` — Python returned None.",
+    "fix": "Make sure every code path returns a value; add a final `return` even in 'unreachable' branches."
+  },
+  {
+    "error": "Wrong answer on duplicate elements",
+    "cause": "Algorithm assumes uniqueness, e.g. using a set where order or multiplicity matters.",
+    "fix": "Preserve multiplicity with a list / `Counter`; only de-duplicate when the spec calls for it."
+  },
+  {
+    "error": "Wrong answer on already-sorted / reverse-sorted input",
+    "cause": "Algorithm relies on a specific pre-condition that does not always hold.",
+    "fix": "Either sort defensively at the top of the function, or document the precondition and implement the general case."
+  }
+]
