@@ -22,7 +22,11 @@ KB_PATH = Path(__file__).resolve().parent.parent / "knowledge_base" / "error_pat
 
 
 def _load_patterns() -> List[dict]:
+<<<<<<< HEAD
     with KB_PATH.open() as f:
+=======
+    with KB_PATH.open(encoding = 'utf-8') as f:
+>>>>>>> 412f6f8 (20260507)
         return json.load(f)
 
 

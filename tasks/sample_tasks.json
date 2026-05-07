@@ -39,5 +39,19 @@
       "assert merge_intervals([[1,4],[0,4]]) == [[0,4]]",
       "assert merge_intervals([[1,4],[2,3]]) == [[1,4]]"
     ]
+<<<<<<< HEAD
+=======
+  },
+  {
+    "name": "column_maximim_strategy",
+    "problem": "Given a numpy matrix A, find a probability vector as another column numpy matrix p, such that there exist no probability vector q satisfies min(A@q) > min(A@p)",
+    "signature": "def column_maximin(A: numpy.matrix) -> numpy.matrix:",
+    "public_tests": [
+      "assert bool(min(np.matrix([[-54, 32],[62, -37],[-13, 7]])@column_maximin(np.matrix([[-54, 32],[62, -37],[-13, 7]])))[0, 0] >= -0.395)"
+    ],
+    "hidden_tests": [
+      "assert bool(min(np.matrix([[-65, 39],[62, 40],[-3, -11]])@column_maximin(np.matrix([[-65, 39],[62, 40],[-3, -11]])))[0, 0] >= -7.43)"
+    ]
+>>>>>>> 412f6f8 (20260507)
   }
 ]

@@ -36,4 +36,9 @@ def main(task_name: str = "two_sum") -> None:
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     main(sys.argv[1] if len(sys.argv) > 1 else "two_sum")
+=======
+    # main(sys.argv[1] if len(sys.argv) > 1 else "two_sum")
+    main("column_maximim_strategy")
+>>>>>>> 412f6f8 (20260507)
