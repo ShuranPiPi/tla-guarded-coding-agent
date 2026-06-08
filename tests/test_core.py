@@ -56,6 +56,26 @@ class SpecParserTests(unittest.TestCase):
         with self.assertRaises(SpecBundleError):
             parse_spec_bundle("```tla\n---- MODULE Missing ----\n====\n```")
 
+    def test_cfg_is_synthesized_from_tla(self) -> None:
+        text = """```tla
+---- MODULE NoCfg ----
+EXTENDS TLC
+VARIABLE pc
+Init == pc = "check"
+Next == pc' = "done"
+Spec == Init /\\ [][Next]_pc
+TypeOK == pc \\in {"check", "done"}
+Correct == TRUE
+====
+```
+```json
+{"spec_tests": ["assert True"]}
+```"""
+        bundle = parse_spec_bundle(text)
+        self.assertIn("SPECIFICATION Spec", bundle.cfg)
+        self.assertIn("INVARIANT TypeOK", bundle.cfg)
+        self.assertIn("INVARIANT Correct", bundle.cfg)
+
     def test_deterministic_fallback_bundle_is_parseable(self) -> None:
         bundle = parse_spec_bundle(
             deterministic_fallback_bundle("two_sum", ["assert two_sum([1, 2], 3) == (0, 1)"])

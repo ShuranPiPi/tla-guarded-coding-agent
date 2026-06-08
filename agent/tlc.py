@@ -79,7 +79,7 @@ def run_tlc(module_name: str, tla_code: str, cfg_code: str, timeout: float = 30.
     match = _STATES_RE.search(output)
     states_found = int(match.group(2)) if match else None
     passed = proc.returncode == 0 and "No error has been found" in proc.stdout
-    error = "" if passed else (proc.stderr.strip() or _first_error(proc.stdout) or "TLC failed")
+    error = "" if passed else (proc.stderr.strip() or _error_summary(proc.stdout) or "TLC failed")
     return TLCResult(
         module=module_name,
         passed=passed,
@@ -91,8 +91,10 @@ def run_tlc(module_name: str, tla_code: str, cfg_code: str, timeout: float = 30.
     )
 
 
-def _first_error(stdout: str) -> str:
-    for line in stdout.splitlines():
+def _error_summary(stdout: str) -> str:
+    lines = stdout.splitlines()
+    for i, line in enumerate(lines):
         if line.startswith("Error:") or "Error:" in line:
-            return line
-    return ""
+            tail = lines[i : min(len(lines), i + 12)]
+            return "\n".join(tail)
+    return "\n".join(lines[-12:])

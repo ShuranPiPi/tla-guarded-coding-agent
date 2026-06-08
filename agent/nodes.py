@@ -18,14 +18,51 @@ from .tools import run_tests
 
 
 SPEC_SYS = (
-    "You write small, finite TLA+ specifications that TLC can model-check. "
-    "Output exactly three fenced blocks: ```tla```, ```cfg```, and ```json```. "
-    "Do not use PlusCal, TLAPS, Reals, or unbounded sets. Prefer finite example "
-    "constants and simple terminating state machines. The JSON block must be an "
-    "object with a spec_tests list of Python assert strings for the required function."
+    "You write small, finite TLA+ modules that TLC can model-check. "
+    "Use the finite-state template in the user prompt almost verbatim. "
+    "Do not use PlusCal, TLAPS, Reals, Nat, SUBSET, CHOOSE, recursion, or unbounded sets. "
+    "Output fenced ```tla``` and ```json``` blocks. A ```cfg``` block is optional because "
+    "the controller will synthesize cfg from the TLA definitions."
 )
 
-SPEC_PROMPT = """\
+FINITE_TLA_EXAMPLE = """\
+```tla
+---- MODULE TwoSumFiniteSpec ----
+EXTENDS Naturals, Integers, Sequences, TLC
+
+VARIABLE pc
+
+Examples == {
+    [nums |-> <<2, 7, 11, 15>>, target |-> 9, out |-> <<1, 2>>],
+    [nums |-> <<3, 2, 4>>, target |-> 6, out |-> <<2, 3>>]
+}
+
+ValidExample(e) ==
+    /\ e.out[1] < e.out[2]
+    /\ e.out[1] \\in 1..Len(e.nums)
+    /\ e.out[2] \\in 1..Len(e.nums)
+    /\ e.nums[e.out[1]] + e.nums[e.out[2]] = e.target
+
+Init == pc = "check"
+
+Next == pc' = "done"
+
+Spec == Init /\\ [][Next]_pc
+
+TypeOK == pc \\in {"check", "done"}
+
+Correct == \\A e \\in Examples : ValidExample(e)
+====
+```
+```json
+{"spec_tests": [
+  "assert two_sum([2, 7, 11, 15], 9) == (0, 1)",
+  "assert two_sum([3, 2, 4], 6) == (1, 2)"
+]}
+```
+"""
+
+SPEC_PROMPT_TEMPLATE = """\
 Problem:
 {problem}
 
@@ -35,32 +72,29 @@ Required Python signature:
 Public tests for context only:
 {public_tests}
 
-Generate a TLC-checkable TLA+ module and cfg. The TLA+ module should capture a
-finite abstraction of the problem or its examples and include at least one
-invariant or temporal property in the cfg. Then generate Python assert tests
-derived from that finite spec.
+Goal:
+Generate a finite example-based TLA+ module that TLC can check. The TLA+ does
+not need to prove the algorithm for all possible inputs. It should formalize a
+small finite set of examples and a Correct invariant over those examples.
 
-Use this output shape exactly:
-```tla
----- MODULE ExampleSpec ----
-EXTENDS Naturals, Integers, Sequences, TLC
-...
-====
-```
-```cfg
-SPECIFICATION Spec
-INVARIANTS TypeOK
-CHECK_DEADLOCK FALSE
-```
-```json
-{{"spec_tests": ["assert ..."]}}
-```
+Hard rules:
+- Use only finite literal sets/sequences.
+- Use 1-based TLA+ sequence indexes, even when Python tests use 0-based indexes.
+- Define these operators exactly: Init, Next, Spec, TypeOK, Correct.
+- Use a single variable named pc with states "check" and "done".
+- End the module with ====.
+- Output a JSON block with spec_tests copied or derived from the finite examples.
+- Do not output prose outside fenced blocks.
+
+Follow this working template closely, changing only module name, Examples,
+ValidExample, and spec_tests:
+{finite_example}
 """
 
 SPEC_REPAIR_SYS = (
     "You repair TLA+ specs so TLC can check them. Preserve the task intent, "
-    "but prioritize producing a syntactically valid, finite, TLC-checkable "
-    "TLA+ module, cfg, and JSON spec_tests block."
+    "but prioritize producing a syntactically valid, finite, TLC-checkable module. "
+    "Use the finite-state template from the prompt; do not invent a new style."
 )
 
 CODE_SYS = (
@@ -90,11 +124,7 @@ def init_node(state: AgentState) -> AgentState:
 
 
 def generate_spec_node(state: AgentState) -> AgentState:
-    prompt = SPEC_PROMPT.format(
-        problem=state["problem"],
-        signature=state["signature"],
-        public_tests="\n".join(state.get("public_tests", [])) or "(none)",
-    )
+    prompt = _spec_prompt(state)
     try:
         resp = LLMClient().generate(SPEC_SYS, prompt)
         return {
@@ -164,7 +194,10 @@ def repair_spec_node(state: AgentState) -> AgentState:
         f"Required signature:\n{state['signature']}\n\n"
         f"Previous bundle:\n{state.get('spec_bundle_raw', '')}\n\n"
         f"TLC or parser error:\n{_spec_error(state)}\n\n"
-        "Return a complete corrected bundle with ```tla```, ```cfg```, and ```json``` blocks."
+        f"Likely fix:\n{_repair_advice(_spec_error(state))}\n\n"
+        "Rewrite the bundle using this known-good finite template style:\n"
+        f"{FINITE_TLA_EXAMPLE}\n"
+        "Return corrected ```tla``` and ```json``` blocks. No prose."
     )
     try:
         resp = LLMClient(provider=provider).generate(SPEC_REPAIR_SYS, prompt)
@@ -341,3 +374,27 @@ def _code_prompt(state: AgentState, previous_code: str) -> str:
 
 def _test_failure(stderr: str, failing_test: str) -> TestResult:
     return {"passed": False, "stdout": "", "stderr": stderr, "failing_test": failing_test}
+
+
+def _spec_prompt(state: AgentState) -> str:
+    return SPEC_PROMPT_TEMPLATE.format(
+        problem=state["problem"],
+        signature=state["signature"],
+        public_tests="\n".join(state.get("public_tests", [])) or "(none)",
+        finite_example=FINITE_TLA_EXAMPLE,
+    )
+
+
+def _repair_advice(error: str) -> str:
+    lowered = error.lower()
+    if "attempted to enumerate" in lowered or "not enumerable" in lowered:
+        return "Replace every unbounded set with a finite literal set or sequence."
+    if "unknown operator" in lowered or "undefined" in lowered:
+        return "Define every helper operator you use, or remove it and inline the expression."
+    if "semantic" in lowered or "parse" in lowered or "syntax" in lowered:
+        return "Copy the finite template exactly and only edit Examples, ValidExample, and spec_tests."
+    if "deadlock" in lowered:
+        return "Set CHECK_DEADLOCK FALSE and keep Next as a simple transition from \"check\" to \"done\"."
+    if "unexpected exception" in lowered:
+        return "Avoid complex records, CHOOSE, CASE, recursive operators, and module instantiation."
+    return "Use the finite template exactly; keep the model small and all sets enumerable."

@@ -34,21 +34,22 @@ def parse_spec_bundle(text: str) -> SpecBundle:
     tests_json = _first(blocks, "json")
     if not tla:
         raise SpecBundleError("Missing ```tla``` block.")
-    if not cfg:
-        raise SpecBundleError("Missing ```cfg``` block.")
     if not tests_json:
         raise SpecBundleError("Missing ```json``` block with spec_tests.")
 
+    tla = _normalize_tla(tla)
     module_match = _MODULE_RE.search(tla)
     if not module_match:
         raise SpecBundleError("TLA block must contain a valid MODULE header.")
     module = module_match.group(1)
+    if not re.search(r"(?m)^Spec\s*==", tla):
+        raise SpecBundleError("TLA block must define `Spec == ...`.")
 
     spec_tests = _parse_tests(tests_json)
     if not spec_tests:
         raise SpecBundleError("JSON block must contain at least one spec-derived test.")
 
-    return SpecBundle(module=module, tla=tla, cfg=cfg, spec_tests=spec_tests)
+    return SpecBundle(module=module, tla=tla, cfg=_normalize_cfg(tla, cfg), spec_tests=spec_tests)
 
 
 def _first(blocks: dict[str, list[str]], kind: str) -> str:
@@ -72,6 +73,32 @@ def _parse_tests(text: str) -> list[str]:
     if not all(isinstance(test, str) and test.strip().startswith("assert ") for test in tests):
         raise SpecBundleError("Every spec test must be a Python assert statement.")
     return [test.strip() for test in tests]
+
+
+def _normalize_tla(tla: str) -> str:
+    tla = tla.strip()
+    if not tla.endswith("===="):
+        tla = f"{tla.rstrip()}\n===="
+    return tla
+
+
+def _normalize_cfg(tla: str, cfg: str) -> str:
+    """Generate a conservative TLC cfg from the TLA definitions.
+
+    Gemini often writes cfg blocks that refer to missing properties or use the
+    wrong keyword. The agent only needs to TLC-check the generated module, so we
+    synthesize the cfg deterministically from the operators that actually exist.
+    """
+    invariants = []
+    for name in ("TypeOK", "Correct", "Safety"):
+        if re.search(rf"(?m)^{name}\s*==", tla):
+            invariants.append(name)
+
+    lines = ["SPECIFICATION Spec"]
+    for invariant in invariants:
+        lines.append(f"INVARIANT {invariant}")
+    lines.append("CHECK_DEADLOCK FALSE")
+    return "\n".join(lines) + "\n"
 
 
 def extract_python_code(text: str) -> str:
