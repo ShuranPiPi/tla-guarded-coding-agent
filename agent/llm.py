@@ -107,8 +107,11 @@ class LLMClient:
                 "OpenAI provider requires langchain-core and langchain-openai."
             ) from exc
 
-        llm = ChatOpenAI(model=self.openai_model, temperature=self.temperature)
-        resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
+        try:
+            llm = ChatOpenAI(model=self.openai_model, temperature=self.temperature)
+            resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
+        except Exception as exc:
+            raise LLMUnavailableError(f"OpenAI generation failed: {exc}") from exc
         return LLMResponse(text=str(resp.content), provider="openai", model=self.openai_model)
 
     def _generate_gemini(self, system: str, prompt: str) -> LLMResponse:
@@ -125,9 +128,12 @@ class LLMClient:
             system_instruction=system,
             temperature=self.temperature,
         )
-        resp = client.models.generate_content(
-            model=self.gemini_model,
-            contents=prompt,
-            config=config,
-        )
+        try:
+            resp = client.models.generate_content(
+                model=self.gemini_model,
+                contents=prompt,
+                config=config,
+            )
+        except Exception as exc:
+            raise LLMUnavailableError(f"Gemini generation failed: {exc}") from exc
         return LLMResponse(text=resp.text or "", provider="gemini", model=self.gemini_model)
