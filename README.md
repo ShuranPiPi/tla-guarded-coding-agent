@@ -106,6 +106,13 @@ cp .env.example .env
 # Add this directory to your PATH
 # Create a bat file called "tlc.bat" with an one line command '@java -cp "{the path of the jar file}\tla2tools.jar" tlc2.TLC %*' in it
 # Create a bat file called "pcal.bat" with an one line command '@java -cp "{the path of the jar file}\tla2tools.jar" pcal.trans %*' in it
+# Create a bat file called "tlapm.bat" with the following commands if you are using Windows:
+# @echo off
+# setlocal enabledelayedexpansion
+# set "args=%*"
+# set "args=%args:C:\=/mnt/c/%"
+# set "args=%args:\=/%"
+# wsl tlapm %args%
 
 # 4. Explore the Notebook Run
 jupyter notebook Draft_20260607.ipynb
