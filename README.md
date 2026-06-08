@@ -86,7 +86,10 @@ java -cp tools\tla2tools.jar tlc2.TLC -config tla\CodingAgent.cfg tla\CodingAgen
 
 ## Spec Bundle Format
 
-The LLM must emit one bundle with three fenced blocks:
+The LLM is prompted to emit a finite example-based bundle. The parser accepts
+`tla` and `json` blocks and synthesizes the TLC cfg from definitions that are
+actually present in the TLA module. This reduces Gemini failure modes where the
+cfg references a missing invariant or property.
 
 ````text
 ```tla
@@ -106,6 +109,19 @@ CHECK_DEADLOCK FALSE
 
 Only TLA/cfg blocks are checked by TLC. The JSON tests are used afterward to
 evaluate the generated Python implementation.
+
+## Gemini Reliability Strategy
+
+`gemini-3.5-flash` is treated as a small model, so the spec prompt constrains
+the task heavily:
+
+- Gemini is asked to follow a complete finite-state TLA+ example template.
+- The template uses one variable, finite literal examples, `TypeOK`, and
+  `Correct`.
+- The agent synthesizes the cfg instead of trusting the model's cfg.
+- TLC error output is summarized and mapped to concrete repair advice.
+- If the model still cannot produce a TLC-valid module, the deterministic
+  fallback creates a simple finite bundle from public tests.
 
 ## Testing
 
