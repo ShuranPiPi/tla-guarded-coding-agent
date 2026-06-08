@@ -25,7 +25,7 @@ The agent breaks down the problem into subtasks, writes PlusCal specifications f
 │                                └─── Skip ◄─────┘ (Retry exhausted)   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
-(The Skip node implements a comprimise mechanism to ensure liveliness. If TLAPS verification loops endlessly due to the LLM's limitations with TLA+ syntax, the agent saves the best-effort PlusCal spec as pseudo-code and moves forward, preventing total pipeline failure. This limitation is typical for current LLMs, and the challenges will be addressed in detail in the report)
+(The Skip node implements a comprimise mechanism to ensure liveness. If TLAPS verification loops endlessly due to the LLM's limitations with TLA+ syntax, the agent saves the best-effort PlusCal spec as pseudo-code and moves forward, preventing total pipeline failure. This limitation is typical for current LLMs, and the challenges will be addressed in detail in the report)
 
 ### Phase 2: Python Code Generation & Execution
 
