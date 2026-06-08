@@ -26,19 +26,12 @@ from .tools import run_tests
 def _llm() -> ChatOpenAI:
     model = os.environ.get("AGENT_MODEL", "gpt-4o-mini")
     # Low temperature — we want reproducible, focused code.
-<<<<<<< HEAD
     return ChatOpenAI(model=model, temperature=0.2)
-=======
-    return ChatOpenAI(model = model, temperature = 0.2)
->>>>>>> 412f6f8 (20260507)
 
 
 _CODE_FENCE = re.compile(r"```(?:python)?\s*(.*?)```", re.DOTALL)
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 412f6f8 (20260507)
 def _strip_code(text: str) -> str:
     """Extract the first ```python``` block, or return the raw text."""
     m = _CODE_FENCE.search(text)
@@ -52,17 +45,10 @@ def _strip_code(text: str) -> str:
 def init_node(state: AgentState) -> AgentState:
     """Init: set the workflow counters. Mirrors TLA+ ``Init``."""
     return {
-<<<<<<< HEAD
         "workflow": "Generate",
         "retries": 0,
         "max_retries": state.get("max_retries", int(os.environ.get("AGENT_MAX_RETRIES", "3"))),
         "history": state.get("history", []) + ["Init -> Generate"],
-=======
-        "workflow": "GenerateSpec",
-        "retries": 0,
-        "max_retries": state.get("max_retries", int(os.environ.get("AGENT_MAX_RETRIES", "3"))),
-        "history": state.get("history", []) + ["Init -> GenerateSpec"],
->>>>>>> 412f6f8 (20260507)
     }
 
 
@@ -77,15 +63,8 @@ def generate_node(state: AgentState) -> AgentState:
     prompt = (
         f"Problem:\n{state['problem']}\n\n"
         f"Required signature:\n{state['signature']}\n\n"
-<<<<<<< HEAD
         "Write the function. Do not include tests."
     )
-=======
-        f"Keep in mind that these specs need to be satisfied:\n{state["tlaSpec"]}"
-        "Write the function. Do not include tests."
-    )
-    # print(state["tlaSpec"])
->>>>>>> 412f6f8 (20260507)
     resp = _llm().invoke([SystemMessage(content=GENERATE_SYS), HumanMessage(content=prompt)])
     code = _strip_code(resp.content)
     return {
@@ -156,10 +135,7 @@ def fail_node(state: AgentState) -> AgentState:
         "history": state.get("history", []) + ["-> Fail (retry budget exhausted)"],
     }
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 412f6f8 (20260507)
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
@@ -171,33 +147,3 @@ def route_after_test(state: AgentState) -> Literal["done", "repair", "fail"]:
     if state["retries"] < state["max_retries"]:
         return "repair"
     return "fail"
-<<<<<<< HEAD
-=======
-
-# ---------------------------------------------------------------------------
-# Possible extensions
-# ---------------------------------------------------------------------------
-
-SPEC_SYS = (
-    "You are a careful programmer. Before producing a single, self-contained "
-    "implementation of the requested function, try to specify the program first"
-    "(properties, behaviours, invariants, etc.)"
-    "Output ONLY a block with TLA+ specifications"
-    "— no prose, no tests, no examples."
-)
-
-def generate_spec_node(state: AgentState) -> AgentState:
-    prompt = (
-        f"Problem:\n{state['problem']}\n\n"
-        f"Required signature:\n{state['signature']}\n\n"
-        "Before generating the code, try to specify(in terms of TLA+) the program"
-    )
-    resp = _llm().invoke([SystemMessage(content = SPEC_SYS), 
-                          HumanMessage(content = prompt)])
-    spec = resp.content
-    return {
-        "tlaSpec": spec,
-        "workflow": "Test",
-        "history": state.get("history", []) + ["GenerateSpec -> Generate"],
-    }
->>>>>>> 412f6f8 (20260507)

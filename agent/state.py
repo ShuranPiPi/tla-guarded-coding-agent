@@ -9,11 +9,7 @@ from typing import List, Literal, Optional, TypedDict
 
 # The six workflow states from the proposal. These are the exact values
 # of the ``pc`` (program counter) variable in the TLA+ spec.
-<<<<<<< HEAD
 Workflow = Literal["Init", "Generate", "Test", "Repair", "Done", "Fail"]
-=======
-Workflow = Literal["Init", "GenerateSpec", "Generate", "Test", "Repair", "Done", "Fail"]
->>>>>>> 412f6f8 (20260507)
 
 
 class TestResult(TypedDict):
@@ -39,10 +35,5 @@ class AgentState(TypedDict, total=False):
     retries: int            # number of repair attempts so far (TLA+: retries)
     max_retries: int        # upper bound on retries           (TLA+: MaxRetries)
 
-<<<<<<< HEAD
-=======
-    tlaSpec: str
-
->>>>>>> 412f6f8 (20260507)
     # --- auditing ------------------------------------------------------
     history: List[str]      # human-readable trace for the report

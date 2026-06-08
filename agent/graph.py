@@ -20,10 +20,6 @@ from .nodes import (
     repair_node,
     route_after_test,
     test_node,
-<<<<<<< HEAD
-=======
-    generate_spec_node,
->>>>>>> 412f6f8 (20260507)
 )
 from .state import AgentState
 
@@ -32,10 +28,6 @@ def build_agent():
     g = StateGraph(AgentState)
 
     g.add_node("init", init_node)
-<<<<<<< HEAD
-=======
-    g.add_node("generate_spec", generate_spec_node)
->>>>>>> 412f6f8 (20260507)
     g.add_node("generate", generate_node)
     g.add_node("test", test_node)
     g.add_node("repair", repair_node)
@@ -43,12 +35,7 @@ def build_agent():
     g.add_node("fail", fail_node)
 
     g.set_entry_point("init")
-<<<<<<< HEAD
     g.add_edge("init", "generate")
-=======
-    g.add_edge("init", "generate_spec")
-    g.add_edge("generate_spec", "generate")
->>>>>>> 412f6f8 (20260507)
     g.add_edge("generate", "test")
     g.add_conditional_edges(
         "test",
@@ -72,10 +59,6 @@ def run_agent(task: dict, max_retries: int = 3) -> AgentState:
         "hidden_tests": task.get("hidden_tests", []),
         "workflow": "Init",
         "code": "",
-<<<<<<< HEAD
-=======
-        "tlaSpec": "",
->>>>>>> 412f6f8 (20260507)
         "last_result": None,
         "retries": 0,
         "max_retries": max_retries,
