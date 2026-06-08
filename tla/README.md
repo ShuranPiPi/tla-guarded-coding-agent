@@ -1,38 +1,42 @@
-# TLA+ specification
+# TLA+ controller model
 
-`CodingAgent.tla` formalises the state machine implemented by
-`agent/graph.py`. The Python implementation and the TLA+ model share the
-same vocabulary:
+`CodingAgent.tla` models the spec-first workflow implemented by
+`agent/graph.py`:
 
-| Python (`agent.state`)      | TLA+ variable   |
-|-----------------------------|-----------------|
-| `workflow` (`Init`/`Generate`/`Test`/`Repair`/`Done`/`Fail`) | `pc` |
-| `last_result["passed"]`     | `codeOk`        |
-| *did we just run `test_node` on this code?*                  | `tested`        |
-| `retries`                   | `retries`       |
-| `max_retries`               | `MaxRetries` (constant) |
+```text
+Init -> GenerateSpec -> CheckSpec -> RepairSpec* -> DeriveTests
+     -> GenerateCode -> TestCode -> RepairCode* -> Done | CodeFail
+                                           CheckSpec* -> SpecFail
+```
 
-## Properties
+The model abstracts LLM behavior as nondeterministic booleans:
 
-All four come directly from the proposal:
+| Python state field | TLA+ variable |
+|---|---|
+| `workflow` | `pc` |
+| `spec_result["passed"]` | `specOk` |
+| TLC check completed | `specChecked` |
+| `spec_tests` derived from verified bundle | `testsDerived` |
+| `last_result["passed"]` | `codeOk` |
+| Python test completed | `codeChecked` |
+| `spec_retries` / `code_retries` | retry counters |
 
-1. **NoAcceptBeforeValidation** (invariant) — `pc = "Done" ⇒ tested`.
-   The agent cannot land in `Done` without having run at least one
-   `TestPass` transition.
-2. **FailedTestGoesToRepairOrFail** (invariant) — after a failed test the
-   controller never skips back to an accept state.
-3. **BoundedRetries** (invariant) — `retries ≤ MaxRetries`. The retry
-   budget can never be exceeded.
-4. **EventuallyTerminates** (liveness) — `◇(pc ∈ {Done, Fail})`. Under
-   weak fairness the workflow always makes progress and eventually halts.
+## Checked properties
+
+- `SpecCheckedBeforeCode`: Python generation/testing cannot start until the
+  TLA+ spec has passed TLC and spec-derived tests exist.
+- `NoDoneWithoutVerifiedSpec`: `Done` requires both a verified spec and passing
+  Python tests.
+- `SpecFailOnlyAfterBudget`: spec failure is reachable only after the spec
+  retry budget is exhausted.
+- `CodeFailPreservesSpecSuccess`: Python failure does not erase the fact that
+  the spec passed TLC.
+- `BoundedRetries`: both retry counters stay within their budgets.
+- `EventuallyTerminates`: under weak fairness, the workflow eventually reaches
+  `Done`, `CodeFail`, or `SpecFail`.
 
 ## Running TLC
 
-```bash
-# Get tla2tools.jar from https://github.com/tlaplus/tlaplus/releases
-java -cp tla2tools.jar tlc2.TLC -config CodingAgent.cfg CodingAgent.tla
+```powershell
+java -cp tools\tla2tools.jar tlc2.TLC -config tla\CodingAgent.cfg tla\CodingAgent.tla
 ```
-
-With `MaxRetries = 3` the state space has 36 distinct states and TLC
-finishes in well under a second. Increase `MaxRetries` in `CodingAgent.cfg`
-to stress-test the bound.

@@ -1,124 +1,192 @@
 ------------------------------ MODULE CodingAgent ------------------------------
 (*****************************************************************************
-  Formal specification of the self-correcting coding agent's controller.
+  Controller model for the TLC-spec-guarded coding agent.
 
-  This spec intentionally abstracts away the LLM and the Python test runner.
-  From the controller's perspective, both are non-deterministic oracles:
-    - Generate/Repair produce *some* code  (modelled by a boolean `codeOk`,
-      chosen non-deterministically to explore both "correct" and "incorrect"
-      outcomes);
-    - Test reports pass iff the current code is correct.
-
-  The point of the model is to check *workflow-level* properties that hold
-  regardless of how smart the LLM is:
-    - INV1  NoAcceptBeforeValidation
-    - INV2  FailedTestGoesToRepairOrFail
-    - INV3  BoundedRetries
-    - LIVE  EventuallyTerminates
+  The model abstracts LLM output and Python test outcomes as nondeterministic
+  booleans. It verifies workflow-level guarantees:
+    - Python code generation cannot start before a TLC-checked spec succeeds.
+    - Done requires both a verified spec and passing code tests.
+    - Spec and code retry budgets are bounded.
+    - The workflow eventually reaches Done, CodeFail, or SpecFail.
 ******************************************************************************)
 
 EXTENDS Naturals, TLC
 
-CONSTANTS MaxRetries    \* non-negative integer
+CONSTANTS
+    MaxSpecRetries,
+    MaxCodeRetries
 
 VARIABLES
-    pc,        \* control-flow state: one of {"Init","Generate","Test","Repair","Done","Fail"}
-    codeOk,    \* does the current code pass the tests?  (BOOLEAN)
-    tested,    \* has the current code been run through Test since last generation?
-    retries    \* number of repair iterations taken so far
+    pc,
+    specOk,
+    codeOk,
+    specChecked,
+    testsDerived,
+    codeChecked,
+    specRetries,
+    codeRetries
 
-vars == <<pc, codeOk, tested, retries>>
+vars == <<pc, specOk, codeOk, specChecked, testsDerived, codeChecked,
+          specRetries, codeRetries>>
 
-States == {"Init", "Generate", "Test", "Repair", "Done", "Fail"}
+States == {
+    "Init", "GenerateSpec", "CheckSpec", "RepairSpec", "DeriveTests",
+    "GenerateCode", "TestCode", "RepairCode",
+    "Done", "CodeFail", "SpecFail"
+}
+
+Terminal == {"Done", "CodeFail", "SpecFail"}
+CodeStates == {"GenerateCode", "TestCode", "RepairCode", "Done", "CodeFail"}
 
 TypeOK ==
     /\ pc \in States
+    /\ specOk \in BOOLEAN
     /\ codeOk \in BOOLEAN
-    /\ tested \in BOOLEAN
-    /\ retries \in 0..MaxRetries
-
-(***************************************************************************)
-(*                               Transitions                               *)
-(***************************************************************************)
+    /\ specChecked \in BOOLEAN
+    /\ testsDerived \in BOOLEAN
+    /\ codeChecked \in BOOLEAN
+    /\ specRetries \in 0..MaxSpecRetries
+    /\ codeRetries \in 0..MaxCodeRetries
 
 Init ==
     /\ pc = "Init"
-    /\ pc' = "Generate"
+    /\ pc' = "GenerateSpec"
+    /\ specOk' = FALSE
     /\ codeOk' = FALSE
-    /\ tested' = FALSE
-    /\ retries' = 0
+    /\ specChecked' = FALSE
+    /\ testsDerived' = FALSE
+    /\ codeChecked' = FALSE
+    /\ specRetries' = 0
+    /\ codeRetries' = 0
 
-(* Generate: producing a fresh piece of code invalidates the `tested` flag
-   and non-deterministically chooses whether the code happens to be correct. *)
-Generate ==
-    /\ pc = "Generate"
-    /\ pc' = "Test"
+GenerateSpec ==
+    /\ pc = "GenerateSpec"
+    /\ pc' = "CheckSpec"
+    /\ \E ok \in BOOLEAN : specOk' = ok
+    /\ specChecked' = FALSE
+    /\ UNCHANGED <<codeOk, testsDerived, codeChecked, specRetries, codeRetries>>
+
+CheckSpecPass ==
+    /\ pc = "CheckSpec"
+    /\ specOk
+    /\ pc' = "DeriveTests"
+    /\ specChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, testsDerived, codeChecked, specRetries, codeRetries>>
+
+CheckSpecFailRetry ==
+    /\ pc = "CheckSpec"
+    /\ ~specOk
+    /\ specRetries < MaxSpecRetries
+    /\ pc' = "RepairSpec"
+    /\ specChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, testsDerived, codeChecked, specRetries, codeRetries>>
+
+CheckSpecFailGiveUp ==
+    /\ pc = "CheckSpec"
+    /\ ~specOk
+    /\ specRetries = MaxSpecRetries
+    /\ pc' = "SpecFail"
+    /\ specChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, testsDerived, codeChecked, specRetries, codeRetries>>
+
+RepairSpec ==
+    /\ pc = "RepairSpec"
+    /\ pc' = "CheckSpec"
+    /\ specRetries' = specRetries + 1
+    /\ \E ok \in BOOLEAN : specOk' = ok
+    /\ specChecked' = FALSE
+    /\ UNCHANGED <<codeOk, testsDerived, codeChecked, codeRetries>>
+
+DeriveTests ==
+    /\ pc = "DeriveTests"
+    /\ specChecked
+    /\ specOk
+    /\ pc' = "GenerateCode"
+    /\ testsDerived' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, specChecked, codeChecked, specRetries, codeRetries>>
+
+GenerateCode ==
+    /\ pc = "GenerateCode"
+    /\ testsDerived
+    /\ pc' = "TestCode"
     /\ \E ok \in BOOLEAN : codeOk' = ok
-    /\ tested' = FALSE
-    /\ UNCHANGED retries
+    /\ codeChecked' = FALSE
+    /\ UNCHANGED <<specOk, specChecked, testsDerived, specRetries, codeRetries>>
 
-(* Test: record the verdict by setting `tested`; branch to Done / Repair / Fail. *)
-TestPass ==
-    /\ pc = "Test"
-    /\ codeOk = TRUE
+TestCodePass ==
+    /\ pc = "TestCode"
+    /\ codeOk
     /\ pc' = "Done"
-    /\ tested' = TRUE
-    /\ UNCHANGED <<codeOk, retries>>
+    /\ codeChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, specChecked, testsDerived, specRetries, codeRetries>>
 
-TestFailRetry ==
-    /\ pc = "Test"
-    /\ codeOk = FALSE
-    /\ retries < MaxRetries
-    /\ pc' = "Repair"
-    /\ tested' = TRUE
-    /\ UNCHANGED <<codeOk, retries>>
+TestCodeFailRetry ==
+    /\ pc = "TestCode"
+    /\ ~codeOk
+    /\ codeRetries < MaxCodeRetries
+    /\ pc' = "RepairCode"
+    /\ codeChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, specChecked, testsDerived, specRetries, codeRetries>>
 
-TestFailGiveUp ==
-    /\ pc = "Test"
-    /\ codeOk = FALSE
-    /\ retries = MaxRetries
-    /\ pc' = "Fail"
-    /\ tested' = TRUE
-    /\ UNCHANGED <<codeOk, retries>>
+TestCodeFailGiveUp ==
+    /\ pc = "TestCode"
+    /\ ~codeOk
+    /\ codeRetries = MaxCodeRetries
+    /\ pc' = "CodeFail"
+    /\ codeChecked' = TRUE
+    /\ UNCHANGED <<specOk, codeOk, specChecked, testsDerived, specRetries, codeRetries>>
 
-Repair ==
-    /\ pc = "Repair"
-    /\ pc' = "Generate"
-    /\ retries' = retries + 1
-    /\ UNCHANGED <<codeOk, tested>>
+RepairCode ==
+    /\ pc = "RepairCode"
+    /\ pc' = "TestCode"
+    /\ codeRetries' = codeRetries + 1
+    /\ \E ok \in BOOLEAN : codeOk' = ok
+    /\ codeChecked' = FALSE
+    /\ UNCHANGED <<specOk, specChecked, testsDerived, specRetries>>
 
 Next ==
     \/ Init
-    \/ Generate
-    \/ TestPass
-    \/ TestFailRetry
-    \/ TestFailGiveUp
-    \/ Repair
+    \/ GenerateSpec
+    \/ CheckSpecPass
+    \/ CheckSpecFailRetry
+    \/ CheckSpecFailGiveUp
+    \/ RepairSpec
+    \/ DeriveTests
+    \/ GenerateCode
+    \/ TestCodePass
+    \/ TestCodeFailRetry
+    \/ TestCodeFailGiveUp
+    \/ RepairCode
 
 Spec ==
-    /\ pc = "Init" /\ codeOk = FALSE /\ tested = FALSE /\ retries = 0
+    /\ pc = "Init"
+    /\ specOk = FALSE
+    /\ codeOk = FALSE
+    /\ specChecked = FALSE
+    /\ testsDerived = FALSE
+    /\ codeChecked = FALSE
+    /\ specRetries = 0
+    /\ codeRetries = 0
     /\ [][Next]_vars
-    /\ WF_vars(Next)   \* weak fairness gives us the termination property
+    /\ WF_vars(Next)
 
-(***************************************************************************)
-(*                               Properties                                *)
-(***************************************************************************)
+SpecCheckedBeforeCode ==
+    pc \in CodeStates => specChecked /\ specOk /\ testsDerived
 
-\* INV1: A final answer is never accepted before its code was tested.
-\*       "Done" is only reachable through TestPass, which requires tested' = TRUE.
-NoAcceptBeforeValidation == (pc = "Done") => tested
+NoDoneWithoutVerifiedSpec ==
+    pc = "Done" => specChecked /\ specOk /\ testsDerived /\ codeChecked /\ codeOk
 
-\* INV2: After a failed test we must be in Repair or Fail — never in Done,
-\*       and never skip back to Generate without going through Repair first.
-FailedTestGoesToRepairOrFail ==
-    (tested /\ ~codeOk /\ pc \notin {"Test"}) => pc \in {"Repair", "Fail", "Generate"}
-    \* Generate is allowed only *after* Repair increments retries; this is
-    \* captured jointly with INV3 below.
+SpecFailOnlyAfterBudget ==
+    pc = "SpecFail" => specChecked /\ ~specOk /\ specRetries = MaxSpecRetries
 
-\* INV3: Retries are bounded.
-BoundedRetries == retries <= MaxRetries
+CodeFailPreservesSpecSuccess ==
+    pc = "CodeFail" => specChecked /\ specOk /\ testsDerived /\ codeChecked
 
-\* LIVE: The workflow eventually terminates.
-EventuallyTerminates == <>(pc \in {"Done", "Fail"})
+BoundedRetries ==
+    /\ specRetries <= MaxSpecRetries
+    /\ codeRetries <= MaxCodeRetries
+
+EventuallyTerminates ==
+    <>(pc \in Terminal)
 
 ================================================================================
