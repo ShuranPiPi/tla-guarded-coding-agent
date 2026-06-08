@@ -4,7 +4,9 @@ __pycache__/
 *.pyc
 .DS_Store
 tla2tools.jar
+!tools/tla2tools.jar
 projects.pdf
 proposal.pdf
 report_midterm.pdf
 doc/
+generated/
