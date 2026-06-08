@@ -1,10 +1,4 @@
-"""Batch evaluation over all sample tasks.
-
-For each task we:
-1. run the agent to produce a solution,
-2. on success, re-run the solution against the *hidden* tests,
-3. collect pass/fail, retries-used, and final workflow state.
-"""
+"""Batch evaluation over all sample tasks."""
 from __future__ import annotations
 
 import json
@@ -24,35 +18,40 @@ TASKS_PATH = Path(__file__).resolve().parent.parent / "tasks" / "sample_tasks.js
 
 
 def main() -> int:
-    tasks = json.loads(TASKS_PATH.read_text())
+    tasks = json.loads(TASKS_PATH.read_text(encoding="utf-8"))
     rows = []
     for task in tasks:
-        final = run_agent(task, max_retries=3)
-        public_ok = final["workflow"] == "Done"
+        final = run_agent(task)
+        spec_result = final.get("spec_result") or {}
+        spec_ok = bool(spec_result.get("passed"))
+        code_ok = final["workflow"] == "Done"
         hidden_ok = False
-        if public_ok and task.get("hidden_tests"):
-            hidden = run_tests(final["code"], task["hidden_tests"])
-            hidden_ok = hidden["passed"]
+        if code_ok and task.get("hidden_tests"):
+            hidden_ok = run_tests(final.get("code", ""), task["hidden_tests"])["passed"]
         rows.append({
             "task": task["name"],
-            "public_passed": public_ok,
-            "hidden_passed": hidden_ok,
-            "retries": final["retries"],
+            "spec": spec_ok,
+            "code": code_ok,
+            "hidden": hidden_ok,
+            "spec_retries": final.get("spec_retries", 0),
+            "code_retries": final.get("code_retries", 0),
             "workflow": final["workflow"],
         })
 
-    # Pretty-print.
-    print(f"{'task':<20} {'public':<8} {'hidden':<8} {'retries':<8} state")
-    for r in rows:
+    print(f"{'task':<20} {'spec':<6} {'code':<6} {'hidden':<8} {'sret':<5} {'cret':<5} state")
+    for row in rows:
         print(
-            f"{r['task']:<20} "
-            f"{'yes' if r['public_passed'] else 'no':<8} "
-            f"{'yes' if r['hidden_passed'] else 'no':<8} "
-            f"{r['retries']:<8} {r['workflow']}"
+            f"{row['task']:<20} "
+            f"{'yes' if row['spec'] else 'no':<6} "
+            f"{'yes' if row['code'] else 'no':<6} "
+            f"{'yes' if row['hidden'] else 'no':<8} "
+            f"{row['spec_retries']:<5} "
+            f"{row['code_retries']:<5} {row['workflow']}"
         )
-    pub = sum(1 for r in rows if r["public_passed"])
-    hid = sum(1 for r in rows if r["hidden_passed"])
-    print(f"\nSummary: {pub}/{len(rows)} public, {hid}/{len(rows)} hidden")
+
+    spec_count = sum(1 for row in rows if row["spec"])
+    code_count = sum(1 for row in rows if row["code"])
+    print(f"\nSummary: {spec_count}/{len(rows)} spec, {code_count}/{len(rows)} code")
     return 0
 
 
