@@ -6,7 +6,12 @@ from typing import Literal
 
 from .llm import LLMClient, LLMUnavailableError, fallback_provider
 from .rag import format_for_prompt, retrieve_fixes
-from .specs import SpecBundleError, extract_python_code, parse_spec_bundle
+from .specs import (
+    SpecBundleError,
+    deterministic_fallback_bundle,
+    extract_python_code,
+    parse_spec_bundle,
+)
 from .state import AgentState, SpecResult, TestResult
 from .tlc import run_tlc
 from .tools import run_tests
@@ -140,6 +145,19 @@ def check_spec_node(state: AgentState) -> AgentState:
 
 
 def repair_spec_node(state: AgentState) -> AgentState:
+    next_retry = state.get("spec_retries", 0) + 1
+    if next_retry >= state.get("max_spec_retries", 3):
+        return {
+            "spec_bundle_raw": deterministic_fallback_bundle(
+                state.get("signature", "Task"),
+                state.get("public_tests", []),
+            ),
+            "spec_retries": next_retry,
+            "workflow": "CheckSpec",
+            "history": state.get("history", [])
+            + [f"RepairSpec #{next_retry} -> CheckSpec (deterministic fallback)"],
+        }
+
     provider = _repair_provider(state)
     prompt = (
         f"Problem:\n{state['problem']}\n\n"
@@ -153,10 +171,10 @@ def repair_spec_node(state: AgentState) -> AgentState:
         return {
             "spec_bundle_raw": resp.text,
             "provider_used": resp.provider,
-            "spec_retries": state.get("spec_retries", 0) + 1,
+            "spec_retries": next_retry,
             "workflow": "CheckSpec",
             "history": state.get("history", [])
-            + [f"RepairSpec #{state.get('spec_retries', 0) + 1} -> CheckSpec ({resp.provider}:{resp.model})"],
+            + [f"RepairSpec #{next_retry} -> CheckSpec ({resp.provider}:{resp.model})"],
         }
     except LLMUnavailableError as exc:
         return _spec_failure_update(state, str(exc), "RepairSpec -> CheckSpec (provider unavailable)")

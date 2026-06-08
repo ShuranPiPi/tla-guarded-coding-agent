@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from agent.llm import LLMUnavailableError, fallback_provider, select_provider
 from agent.nodes import route_after_code_test, route_after_spec_check
-from agent.specs import SpecBundleError, parse_spec_bundle
+from agent.specs import SpecBundleError, deterministic_fallback_bundle, parse_spec_bundle
 from agent.tlc import run_tlc
 
 
@@ -55,6 +55,13 @@ class SpecParserTests(unittest.TestCase):
     def test_missing_blocks_fail(self) -> None:
         with self.assertRaises(SpecBundleError):
             parse_spec_bundle("```tla\n---- MODULE Missing ----\n====\n```")
+
+    def test_deterministic_fallback_bundle_is_parseable(self) -> None:
+        bundle = parse_spec_bundle(
+            deterministic_fallback_bundle("two_sum", ["assert two_sum([1, 2], 3) == (0, 1)"])
+        )
+        self.assertEqual(bundle.module, "TwoSumFallbackSpec")
+        self.assertEqual(bundle.spec_tests[0], "assert two_sum([1, 2], 3) == (0, 1)")
 
 
 class TLCRunnerTests(unittest.TestCase):
