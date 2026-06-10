@@ -1,23 +1,25 @@
-"""Agent state — kept in lock-step with the TLA+ specification.
-
-Every field here appears as a variable in ``tla/CodingAgent.tla`` so that the
-Python implementation and the formal model can be compared side by side.
-"""
+"""Agent state shared by the Python workflow and the TLA+ controller model."""
 from __future__ import annotations
 
 from typing import List, Literal, Optional, TypedDict
 
-# The six workflow states from the proposal. These are the exact values
-# of the ``pc`` (program counter) variable in the TLA+ spec.
-<<<<<<< HEAD
-Workflow = Literal["Init", "Generate", "Test", "Repair", "Done", "Fail"]
-=======
-Workflow = Literal["Init", "GenerateSpec", "Generate", "Test", "Repair", "Done", "Fail"]
->>>>>>> 412f6f8 (20260507)
+Workflow = Literal[
+    "Init",
+    "GenerateSpec",
+    "CheckSpec",
+    "RepairSpec",
+    "DeriveTests",
+    "GenerateCode",
+    "TestCode",
+    "RepairCode",
+    "Done",
+    "CodeFail",
+    "SpecFail",
+]
 
 
 class TestResult(TypedDict):
-    """Outcome of running the generated code against the task's tests."""
+    """Outcome of running generated code against tests."""
 
     passed: bool
     stdout: str
@@ -25,24 +27,41 @@ class TestResult(TypedDict):
     failing_test: Optional[str]
 
 
+class SpecResult(TypedDict):
+    """Outcome of parsing and TLC-checking a generated spec bundle."""
+
+    passed: bool
+    module: str
+    stdout: str
+    stderr: str
+    error: str
+    states_found: Optional[int]
+
+
 class AgentState(TypedDict, total=False):
     # --- task description (immutable after Init) -------------------------
-    problem: str            # natural-language problem statement
-    signature: str          # required function signature, e.g. "def foo(x):"
-    public_tests: List[str] # python `assert` statements
-    hidden_tests: List[str] # extra tests only used to grade final solution
+    problem: str
+    signature: str
+    public_tests: List[str]
+    hidden_tests: List[str]
 
-    # --- mutable during the run ----------------------------------------
-    workflow: Workflow      # current control-flow state  (TLA+: pc)
-    code: str               # latest generated solution    (TLA+: code)
-    last_result: Optional[TestResult]   # last Test outcome (TLA+: tested)
-    retries: int            # number of repair attempts so far (TLA+: retries)
-    max_retries: int        # upper bound on retries           (TLA+: MaxRetries)
+    # --- spec generation / checking -------------------------------------
+    workflow: Workflow
+    spec_bundle_raw: str
+    tla_spec: str
+    tla_cfg: str
+    spec_tests: List[str]
+    spec_result: Optional[SpecResult]
+    spec_retries: int
+    max_spec_retries: int
 
-<<<<<<< HEAD
-=======
-    tlaSpec: str
+    # --- code generation / checking -------------------------------------
+    code: str
+    last_result: Optional[TestResult]
+    code_retries: int
+    max_code_retries: int
 
->>>>>>> 412f6f8 (20260507)
-    # --- auditing ------------------------------------------------------
-    history: List[str]      # human-readable trace for the report
+    # --- provider and auditing ------------------------------------------
+    provider_used: str
+    terminal_reason: str
+    history: List[str]
