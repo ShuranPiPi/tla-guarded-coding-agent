@@ -1,6 +1,6 @@
 """Sandbox-ish test runner.
 
-The generated code is executed in a **separate Python subprocess** with a
+The generated code is executed in a separate Python subprocess with a
 hard timeout. We do not claim real sandboxing — this is a course prototype,
 not a production judge — but subprocess + timeout + no network side-effects is
 enough to stop accidental infinite loops from hanging the agent.
