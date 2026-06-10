@@ -45,6 +45,21 @@ Gemini API quickstart and model docs:
 Do not commit real API keys. Copy `.env.example` to `.env` and fill local
 secrets there.
 
+## Spec Modes
+
+The first specification step is selected by `AGENT_SPEC_MODE` or by the
+`spec_mode` argument to `run_agent`:
+
+- `example` (default): ask the model for a compact finite example-based TLA+
+  module with `pc`, `Examples`, `TypeOK`, and `Correct`.
+- `specification`: ask the model to first write a structured task
+  specification in the JSON block, then encode it as a lower-level finite TLA+
+  state machine with `idx`, `checked`, `CheckOne`, `Correct`, and `Safety`.
+
+Both modes must pass TLC before Python generation starts. The `specification`
+mode usually explores slightly more TLC states, but it gives the Python prompt an
+explicit structured specification in addition to the checked TLA+ module.
+
 ## Project Layout
 
 ```text
@@ -64,6 +79,7 @@ tools/
 notebooks/
   01_tlc_spec_guarded_agent_demo.ipynb
   02_provider_fallback_demo.ipynb
+  03_spec_mode_comparison.ipynb
   archive/        historical draft notebooks, not maintained
 ```
 
@@ -75,7 +91,10 @@ Copy-Item .env.example .env
 # Edit .env and set OPENAI_API_KEY or GEMINI_API_KEY.
 
 python examples/run_demo.py two_sum
+python examples/run_demo.py two_sum --spec-mode specification
 python tests/eval.py
+python tests/eval.py --compare-spec-modes
+python tests/compare_spec_modes.py --runs 5
 ```
 
 Run TLC on the workflow model:
@@ -86,10 +105,10 @@ java -cp tools\tla2tools.jar tlc2.TLC -config tla\CodingAgent.cfg tla\CodingAgen
 
 ## Spec Bundle Format
 
-The LLM is prompted to emit a finite example-based bundle. The parser accepts
-`tla` and `json` blocks and synthesizes the TLC cfg from definitions that are
-actually present in the TLA module. This reduces Gemini failure modes where the
-cfg references a missing invariant or property.
+The LLM is prompted to emit a finite bundle. The parser accepts `tla` and `json`
+blocks and synthesizes the TLC cfg from definitions that are actually present in
+the TLA module. This reduces Gemini failure modes where the cfg references a
+missing invariant or property.
 
 ````text
 ```tla
@@ -103,12 +122,17 @@ INVARIANTS TypeOK
 CHECK_DEADLOCK FALSE
 ```
 ```json
-{"spec_tests": ["assert function_name(...) == ..."]}
+{
+  "specification": {"behavior": "optional structured task spec"},
+  "spec_tests": ["assert function_name(...) == ..."]
+}
 ```
 ````
 
 Only TLA/cfg blocks are checked by TLC. The JSON tests are used afterward to
-evaluate the generated Python implementation.
+evaluate the generated Python implementation. In `specification` mode, the
+optional `specification` JSON object is also passed to the Python generation
+prompt.
 
 ## Gemini Reliability Strategy
 
@@ -116,8 +140,10 @@ evaluate the generated Python implementation.
 the task heavily:
 
 - Gemini is asked to follow a complete finite-state TLA+ example template.
-- The template uses one variable, finite literal examples, `TypeOK`, and
+- The default template uses one variable, finite literal examples, `TypeOK`, and
   `Correct`.
+- The optional `specification` template uses a low-level `idx`/`checked` state
+  machine and records a structured task specification in JSON.
 - The agent synthesizes the cfg instead of trusting the model's cfg.
 - TLC error output is summarized and mapped to concrete repair advice.
 - If the model still cannot produce a TLC-valid module, the deterministic

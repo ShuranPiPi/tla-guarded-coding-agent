@@ -16,6 +16,7 @@ class SpecBundle:
     tla: str
     cfg: str
     spec_tests: list[str]
+    structured_spec: str = ""
 
 
 _BLOCK_RE = re.compile(r"```(?P<kind>[A-Za-z0-9_+-]*)\s*(?P<body>.*?)```", re.DOTALL)
@@ -45,11 +46,17 @@ def parse_spec_bundle(text: str) -> SpecBundle:
     if not re.search(r"(?m)^Spec\s*==", tla):
         raise SpecBundleError("TLA block must define `Spec == ...`.")
 
-    spec_tests = _parse_tests(tests_json)
+    spec_tests, structured_spec = _parse_json_payload(tests_json)
     if not spec_tests:
         raise SpecBundleError("JSON block must contain at least one spec-derived test.")
 
-    return SpecBundle(module=module, tla=tla, cfg=_normalize_cfg(tla, cfg), spec_tests=spec_tests)
+    return SpecBundle(
+        module=module,
+        tla=tla,
+        cfg=_normalize_cfg(tla, cfg),
+        spec_tests=spec_tests,
+        structured_spec=structured_spec,
+    )
 
 
 def _first(blocks: dict[str, list[str]], kind: str) -> str:
@@ -57,14 +64,20 @@ def _first(blocks: dict[str, list[str]], kind: str) -> str:
     return values[0] if values else ""
 
 
-def _parse_tests(text: str) -> list[str]:
+def _parse_json_payload(text: str) -> tuple[list[str], str]:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
         raise SpecBundleError(f"Invalid JSON test block: {exc.msg}") from exc
 
+    structured_spec = ""
     if isinstance(payload, dict):
         tests = payload.get("spec_tests")
+        spec_payload = payload.get("specification", "")
+        if isinstance(spec_payload, (dict, list)):
+            structured_spec = json.dumps(spec_payload, indent=2, sort_keys=True)
+        elif isinstance(spec_payload, str):
+            structured_spec = spec_payload.strip()
     else:
         tests = payload
 
@@ -72,7 +85,7 @@ def _parse_tests(text: str) -> list[str]:
         raise SpecBundleError("spec_tests must be a list of Python assert strings.")
     if not all(isinstance(test, str) and test.strip().startswith("assert ") for test in tests):
         raise SpecBundleError("Every spec test must be a Python assert statement.")
-    return [test.strip() for test in tests]
+    return [test.strip() for test in tests], structured_spec
 
 
 def _normalize_tla(tla: str) -> str:
@@ -108,7 +121,9 @@ def extract_python_code(text: str) -> str:
     return text.strip()
 
 
-def deterministic_fallback_bundle(task_name: str, public_tests: list[str]) -> str:
+def deterministic_fallback_bundle(
+    task_name: str, public_tests: list[str], mode: str = "example"
+) -> str:
     """Return a small TLC-valid bundle when the LLM cannot repair a spec.
 
     This fallback deliberately keeps the TLA+ model simple and finite. It
@@ -119,6 +134,9 @@ def deterministic_fallback_bundle(task_name: str, public_tests: list[str]) -> st
     tests = [test for test in public_tests if test.strip().startswith("assert ")]
     if not tests:
         tests = ["assert True"]
+    if mode == "specification":
+        return _deterministic_specification_bundle(module, tests)
+
     return (
         "```tla\n"
         f"---- MODULE {module} ----\n"
@@ -137,6 +155,44 @@ def deterministic_fallback_bundle(task_name: str, public_tests: list[str]) -> st
         "```\n"
         "```json\n"
         f"{json.dumps({'spec_tests': tests})}\n"
+        "```"
+    )
+
+
+def _deterministic_specification_bundle(module: str, tests: list[str]) -> str:
+    count = max(len(tests), 1)
+    return (
+        "```tla\n"
+        f"---- MODULE {module} ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "VARIABLES idx, checked\n\n"
+        f"ExampleIds == 1..{count}\n\n"
+        "Init ==\n"
+        "    /\\ idx = 1\n"
+        "    /\\ checked = {}\n\n"
+        "CheckOne ==\n"
+        "    /\\ idx \\in ExampleIds\n"
+        "    /\\ checked' = checked \\cup {idx}\n"
+        "    /\\ idx' = idx + 1\n\n"
+        "Done ==\n"
+        f"    /\\ idx = {count + 1}\n"
+        "    /\\ UNCHANGED <<idx, checked>>\n\n"
+        "Next == CheckOne \\/ Done\n\n"
+        "Spec == Init /\\ [][Next]_<<idx, checked>>\n\n"
+        f"TypeOK == /\\ idx \\in 1..{count + 1}\n"
+        "          /\\ checked \\subseteq ExampleIds\n\n"
+        "Correct == checked \\subseteq ExampleIds\n\n"
+        "Safety == checked = ExampleIds => idx = "
+        f"{count + 1}\n"
+        "====\n"
+        "```\n"
+        "```cfg\n"
+        "SPECIFICATION Spec\n"
+        "INVARIANTS TypeOK Correct Safety\n"
+        "CHECK_DEADLOCK FALSE\n"
+        "```\n"
+        "```json\n"
+        f"{json.dumps({'specification': {'mode': 'deterministic low-level fallback', 'examples': count}, 'spec_tests': tests})}\n"
         "```"
     )
 

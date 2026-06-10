@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import argparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -16,12 +17,12 @@ load_dotenv()
 TASKS_PATH = Path(__file__).resolve().parent.parent / "tasks" / "sample_tasks.json"
 
 
-def main(task_name: str = "two_sum") -> None:
+def main(task_name: str = "two_sum", spec_mode: str = "example") -> None:
     tasks = json.loads(TASKS_PATH.read_text(encoding="utf-8"))
     task = next((t for t in tasks if t["name"] == task_name), tasks[0])
 
-    print(f"=== Running spec-guarded agent on task: {task['name']} ===\n")
-    final = run_agent(task)
+    print(f"=== Running spec-guarded agent on task: {task['name']} ({spec_mode}) ===\n")
+    final = run_agent(task, spec_mode=spec_mode)
 
     print("--- Trace ---")
     for line in final["history"]:
@@ -29,6 +30,7 @@ def main(task_name: str = "two_sum") -> None:
 
     spec_result = final.get("spec_result") or {}
     print("\n--- Spec status ---")
+    print(" ", "mode:", final.get("spec_mode", spec_mode))
     print(" ", "passed" if spec_result.get("passed") else "failed")
     print(" ", "module:", spec_result.get("module", ""))
     print(" ", "states:", spec_result.get("states_found"))
@@ -45,4 +47,8 @@ def main(task_name: str = "two_sum") -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "two_sum")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("task", nargs="?", default="two_sum")
+    parser.add_argument("--spec-mode", choices=["example", "specification"], default="example")
+    args = parser.parse_args()
+    main(args.task, args.spec_mode)

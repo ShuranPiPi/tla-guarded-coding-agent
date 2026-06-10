@@ -12,7 +12,7 @@ from .specs import (
     extract_python_code,
     parse_spec_bundle,
 )
-from .state import AgentState, SpecResult, TestResult
+from .state import AgentState, SpecMode, SpecResult, TestResult
 from .tlc import run_tlc
 from .tools import run_tests
 
@@ -62,6 +62,70 @@ Correct == \\A e \\in Examples : ValidExample(e)
 ```
 """
 
+LOW_LEVEL_SPECIFICATION_EXAMPLE = r"""
+```tla
+---- MODULE TwoSumSpecificationSpec ----
+EXTENDS Naturals, Integers, Sequences, TLC
+
+VARIABLES idx, checked
+
+Examples == <<
+    [nums |-> <<2, 7, 11, 15>>, target |-> 9, out |-> <<1, 2>>],
+    [nums |-> <<3, 2, 4>>, target |-> 6, out |-> <<2, 3>>]
+>>
+
+NumExamples == Len(Examples)
+
+ValidExample(e) ==
+    /\ e.out[1] < e.out[2]
+    /\ e.out[1] \in 1..Len(e.nums)
+    /\ e.out[2] \in 1..Len(e.nums)
+    /\ e.nums[e.out[1]] + e.nums[e.out[2]] = e.target
+
+Init ==
+    /\ idx = 1
+    /\ checked = {}
+
+CheckOne ==
+    /\ idx \in 1..NumExamples
+    /\ checked' = checked \cup {idx}
+    /\ idx' = idx + 1
+
+Done ==
+    /\ idx = NumExamples + 1
+    /\ UNCHANGED <<idx, checked>>
+
+Next == CheckOne \/ Done
+
+Spec == Init /\ [][Next]_<<idx, checked>>
+
+TypeOK ==
+    /\ idx \in 1..(NumExamples + 1)
+    /\ checked \subseteq 1..NumExamples
+
+Correct == \A j \in checked : ValidExample(Examples[j])
+
+Safety == checked = 1..NumExamples => idx = NumExamples + 1
+====
+```
+```json
+{
+  "specification": {
+    "behavior": "Return a pair of 0-based Python indices whose values sum to target.",
+    "finite_examples": [
+      {"nums": [2, 7, 11, 15], "target": 9, "out": [0, 1]},
+      {"nums": [3, 2, 4], "target": 6, "out": [1, 2]}
+    ],
+    "tla_indexing_note": "The TLA model stores output positions as 1-based sequence indices."
+  },
+  "spec_tests": [
+    "assert two_sum([2, 7, 11, 15], 9) == (0, 1)",
+    "assert two_sum([3, 2, 4], 6) == (1, 2)"
+  ]
+}
+```
+"""
+
 SPEC_PROMPT_TEMPLATE = """\
 Problem:
 {problem}
@@ -91,6 +155,46 @@ ValidExample, and spec_tests:
 {finite_example}
 """
 
+SPECIFICATION_PROMPT_TEMPLATE = """\
+Problem:
+{problem}
+
+Required Python signature:
+{signature}
+
+Public tests for context only:
+{public_tests}
+
+Goal:
+Write a structured task specification, then encode a low-level finite TLA+
+state machine that TLC can check. This mode is allowed to be simple and finite:
+it should validate the finite input/output examples captured in the
+specification, not prove the algorithm for every possible input.
+
+Hard rules for the TLA+ block:
+- Use explicit low-level state variables named idx and checked.
+- Define Examples as a finite TLA+ sequence of records.
+- Define these operators exactly: Init, CheckOne, Done, Next, Spec, TypeOK,
+  Correct, Safety.
+- CheckOne should advance through the finite examples by adding idx to checked.
+- Correct should assert that every checked example satisfies ValidExample.
+- Safety should assert the terminal checked/idx relationship.
+- Use 1-based TLA+ sequence indexes, even when Python tests use 0-based indexes.
+- Do not use PlusCal, TLAPS, Reals, Nat, CHOOSE, recursion, or unbounded sets.
+- End the module with ====.
+
+Hard rules for the JSON block:
+- Include a "specification" object with behavior, inputs, outputs,
+  finite_examples, and any indexing notes.
+- Include "spec_tests" as Python assert strings copied or derived from the same
+  finite examples.
+- Do not output prose outside fenced blocks.
+
+Follow this working low-level template closely, changing only module name,
+Examples, ValidExample, specification JSON, and spec_tests:
+{low_level_example}
+"""
+
 SPEC_REPAIR_SYS = (
     "You repair TLA+ specs so TLC can check them. Preserve the task intent, "
     "but prioritize producing a syntactically valid, finite, TLC-checkable module. "
@@ -109,8 +213,10 @@ CODE_REPAIR_SYS = (
 
 
 def init_node(state: AgentState) -> AgentState:
+    spec_mode = _spec_mode(state)
     return {
         "workflow": "GenerateSpec",
+        "spec_mode": spec_mode,
         "spec_retries": 0,
         "code_retries": 0,
         "max_spec_retries": state.get(
@@ -119,14 +225,14 @@ def init_node(state: AgentState) -> AgentState:
         "max_code_retries": state.get(
             "max_code_retries", int(os.environ.get("AGENT_MAX_CODE_RETRIES", "3"))
         ),
-        "history": state.get("history", []) + ["Init -> GenerateSpec"],
+        "history": state.get("history", []) + [f"Init -> GenerateSpec ({spec_mode})"],
     }
 
 
 def generate_spec_node(state: AgentState) -> AgentState:
     prompt = _spec_prompt(state)
     try:
-        resp = LLMClient().generate(SPEC_SYS, prompt)
+        resp = LLMClient().generate(_spec_system(state), prompt)
         return {
             "spec_bundle_raw": resp.text,
             "provider_used": resp.provider,
@@ -161,6 +267,7 @@ def check_spec_node(state: AgentState) -> AgentState:
     result = _spec_result_from_tlc(tlc_result)
     update: AgentState = {
         "spec_result": result,
+        "structured_spec": bundle.structured_spec,
         "workflow": "CheckSpec",
         "history": state.get("history", [])
         + [f"CheckSpec -> {'pass' if tlc_result.passed else 'fail'} ({bundle.module})"],
@@ -181,6 +288,7 @@ def repair_spec_node(state: AgentState) -> AgentState:
             "spec_bundle_raw": deterministic_fallback_bundle(
                 state.get("signature", "Task"),
                 state.get("public_tests", []),
+                state.get("spec_mode", "example"),
             ),
             "spec_retries": next_retry,
             "workflow": "CheckSpec",
@@ -195,8 +303,9 @@ def repair_spec_node(state: AgentState) -> AgentState:
         f"Previous bundle:\n{state.get('spec_bundle_raw', '')}\n\n"
         f"TLC or parser error:\n{_spec_error(state)}\n\n"
         f"Likely fix:\n{_repair_advice(_spec_error(state))}\n\n"
-        "Rewrite the bundle using this known-good finite template style:\n"
-        f"{FINITE_TLA_EXAMPLE}\n"
+        f"Rewrite the bundle using this known-good template style for mode "
+        f"{state.get('spec_mode', 'example')!r}:\n"
+        f"{_repair_template(state)}\n"
         "Return corrected ```tla``` and ```json``` blocks. No prose."
     )
     try:
@@ -210,7 +319,9 @@ def repair_spec_node(state: AgentState) -> AgentState:
             + [f"RepairSpec #{next_retry} -> CheckSpec ({resp.provider}:{resp.model})"],
         }
     except LLMUnavailableError as exc:
-        return _spec_failure_update(state, str(exc), "RepairSpec -> CheckSpec (provider unavailable)")
+        update = _spec_failure_update(state, str(exc), "RepairSpec -> CheckSpec (provider unavailable)")
+        update["spec_retries"] = next_retry
+        return update
 
 
 def derive_tests_node(state: AgentState) -> AgentState:
@@ -363,9 +474,15 @@ def _repair_provider(state: AgentState) -> str | None:
 
 def _code_prompt(state: AgentState, previous_code: str) -> str:
     previous = f"\nPrevious code:\n```python\n{previous_code}\n```\n" if previous_code else ""
+    structured = (
+        f"Structured task specification:\n{state.get('structured_spec', '')}\n\n"
+        if state.get("structured_spec")
+        else ""
+    )
     return (
         f"Problem:\n{state['problem']}\n\n"
         f"Required signature:\n{state['signature']}\n\n"
+        f"{structured}"
         f"TLC-checked TLA+ spec:\n```tla\n{state.get('tla_spec', '')}\n```\n\n"
         f"Spec-derived Python tests:\n" + "\n".join(state.get("spec_tests", [])) + "\n"
         f"{previous}\nWrite the function. Do not include tests."
@@ -377,12 +494,45 @@ def _test_failure(stderr: str, failing_test: str) -> TestResult:
 
 
 def _spec_prompt(state: AgentState) -> str:
+    if state.get("spec_mode") == "specification":
+        return SPECIFICATION_PROMPT_TEMPLATE.format(
+            problem=state["problem"],
+            signature=state["signature"],
+            public_tests="\n".join(state.get("public_tests", [])) or "(none)",
+            low_level_example=LOW_LEVEL_SPECIFICATION_EXAMPLE,
+        )
     return SPEC_PROMPT_TEMPLATE.format(
         problem=state["problem"],
         signature=state["signature"],
         public_tests="\n".join(state.get("public_tests", [])) or "(none)",
         finite_example=FINITE_TLA_EXAMPLE,
     )
+
+
+def _spec_system(state: AgentState) -> str:
+    if state.get("spec_mode") == "specification":
+        return (
+            "You first write a concise structured task specification, then encode it "
+            "as a low-level finite TLA+ state machine that TLC can model-check. "
+            "Use the low-level idx/checked template in the user prompt almost verbatim. "
+            "Do not use PlusCal, TLAPS, Reals, Nat, CHOOSE, recursion, or unbounded sets. "
+            "Output fenced ```tla``` and ```json``` blocks. A ```cfg``` block is optional "
+            "because the controller will synthesize cfg from the TLA definitions."
+        )
+    return SPEC_SYS
+
+
+def _repair_template(state: AgentState) -> str:
+    return LOW_LEVEL_SPECIFICATION_EXAMPLE if state.get("spec_mode") == "specification" else FINITE_TLA_EXAMPLE
+
+
+def _spec_mode(state: AgentState) -> SpecMode:
+    mode = str(state.get("spec_mode") or os.environ.get("AGENT_SPEC_MODE", "example")).strip().lower()
+    if mode in {"spec", "structured", "lowlevel", "low_level"}:
+        mode = "specification"
+    if mode not in {"example", "specification"}:
+        mode = "example"
+    return mode  # type: ignore[return-value]
 
 
 def _repair_advice(error: str) -> str:

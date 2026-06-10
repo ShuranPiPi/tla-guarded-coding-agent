@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from agent.llm import LLMUnavailableError, fallback_provider, select_provider
-from agent.nodes import route_after_code_test, route_after_spec_check
+from agent.nodes import LOW_LEVEL_SPECIFICATION_EXAMPLE, init_node, route_after_code_test, route_after_spec_check
 from agent.specs import SpecBundleError, deterministic_fallback_bundle, parse_spec_bundle
 from agent.tlc import run_tlc
 
@@ -76,12 +76,36 @@ Correct == TRUE
         self.assertIn("INVARIANT TypeOK", bundle.cfg)
         self.assertIn("INVARIANT Correct", bundle.cfg)
 
+    def test_structured_spec_payload_is_preserved(self) -> None:
+        text = """```tla
+---- MODULE Structured ----
+EXTENDS TLC
+VARIABLE pc
+Init == pc = "check"
+Next == pc' = "done"
+Spec == Init /\\ [][Next]_pc
+TypeOK == pc \\in {"check", "done"}
+====
+```
+```json
+{"specification": {"behavior": "return x"}, "spec_tests": ["assert f(1) == 1"]}
+```"""
+        bundle = parse_spec_bundle(text)
+        self.assertIn('"behavior": "return x"', bundle.structured_spec)
+
     def test_deterministic_fallback_bundle_is_parseable(self) -> None:
         bundle = parse_spec_bundle(
             deterministic_fallback_bundle("two_sum", ["assert two_sum([1, 2], 3) == (0, 1)"])
         )
         self.assertEqual(bundle.module, "TwoSumFallbackSpec")
         self.assertEqual(bundle.spec_tests[0], "assert two_sum([1, 2], 3) == (0, 1)")
+
+    def test_specification_fallback_bundle_is_parseable(self) -> None:
+        bundle = parse_spec_bundle(
+            deterministic_fallback_bundle("two_sum", ["assert two_sum([1, 2], 3) == (0, 1)"], "specification")
+        )
+        self.assertIn("deterministic low-level fallback", bundle.structured_spec)
+        self.assertIn("INVARIANT Safety", bundle.cfg)
 
 
 class TLCRunnerTests(unittest.TestCase):
@@ -90,6 +114,12 @@ class TLCRunnerTests(unittest.TestCase):
         result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
         self.assertTrue(result.passed, result.error)
         self.assertEqual(result.returncode, 0)
+
+    def test_low_level_specification_template_tlc_success(self) -> None:
+        bundle = parse_spec_bundle(LOW_LEVEL_SPECIFICATION_EXAMPLE)
+        result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
+        self.assertTrue(result.passed, result.error)
+        self.assertEqual(result.states_found, 3)
 
     def test_tlc_failure(self) -> None:
         result = run_tlc(
@@ -102,6 +132,11 @@ class TLCRunnerTests(unittest.TestCase):
 
 
 class WorkflowRoutingTests(unittest.TestCase):
+    def test_init_accepts_specification_mode(self) -> None:
+        update = init_node({"spec_mode": "specification"})
+        self.assertEqual(update["spec_mode"], "specification")
+        self.assertIn("specification", update["history"][-1])
+
     def test_spec_success_routes_to_tests(self) -> None:
         self.assertEqual(route_after_spec_check({"spec_result": {"passed": True}}), "derive_tests")
 

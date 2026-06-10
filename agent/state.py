@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional, TypedDict
 
+SpecMode = Literal["example", "specification"]
+
 Workflow = Literal[
     "Init",
     "GenerateSpec",
@@ -47,7 +49,9 @@ class AgentState(TypedDict, total=False):
 
     # --- spec generation / checking -------------------------------------
     workflow: Workflow
+    spec_mode: SpecMode
     spec_bundle_raw: str
+    structured_spec: str
     tla_spec: str
     tla_cfg: str
     spec_tests: List[str]

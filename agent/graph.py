@@ -73,6 +73,7 @@ def run_agent(
     max_retries: int | None = None,
     max_spec_retries: int | None = None,
     max_code_retries: int | None = None,
+    spec_mode: str | None = None,
 ) -> AgentState:
     """Run the full spec-guarded workflow for one task."""
     app = build_agent()
@@ -84,7 +85,9 @@ def run_agent(
         "public_tests": task.get("public_tests", []),
         "hidden_tests": task.get("hidden_tests", []),
         "workflow": "Init",
+        "spec_mode": spec_mode or "",
         "spec_bundle_raw": "",
+        "structured_spec": "",
         "tla_spec": "",
         "tla_cfg": "",
         "spec_tests": [],
