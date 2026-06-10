@@ -99,8 +99,8 @@ def _normalize_cfg(tla: str, cfg: str) -> str:
     """Generate a conservative TLC cfg from the TLA definitions.
 
     Gemini often writes cfg blocks that refer to missing properties or use the
-    wrong keyword. The agent only needs to TLC-check the generated module, so we
-    synthesize the cfg deterministically from the operators that actually exist.
+    wrong keyword. Example mode uses this cfg with TLC; TLAPS mode keeps the
+    same bundle shape but checks the proof module directly.
     """
     invariants = []
     for name in ("TypeOK", "Correct", "Safety"):
@@ -124,11 +124,12 @@ def extract_python_code(text: str) -> str:
 def deterministic_fallback_bundle(
     task_name: str, public_tests: list[str], mode: str = "example"
 ) -> str:
-    """Return a small TLC-valid bundle when the LLM cannot repair a spec.
+    """Return a small checker-valid bundle when the LLM cannot repair a spec.
 
     This fallback deliberately keeps the TLA+ model simple and finite. It
     preserves forward progress for demos and keeps the primary guarantee true:
-    code generation only starts after TLC has accepted a TLA+ module.
+    code generation only starts after the selected checker has accepted a TLA+
+    module.
     """
     module = _module_name(task_name)
     tests = [test for test in public_tests if test.strip().startswith("assert ")]
@@ -164,7 +165,7 @@ def _deterministic_specification_bundle(module: str, tests: list[str]) -> str:
     return (
         "```tla\n"
         f"---- MODULE {module} ----\n"
-        "EXTENDS Naturals, TLC\n\n"
+        "EXTENDS Naturals, TLAPS\n\n"
         "VARIABLES idx, checked\n\n"
         f"ExampleIds == 1..{count}\n\n"
         "Init ==\n"
@@ -184,6 +185,9 @@ def _deterministic_specification_bundle(module: str, tests: list[str]) -> str:
         "Correct == checked \\subseteq ExampleIds\n\n"
         "Safety == checked = ExampleIds => idx = "
         f"{count + 1}\n"
+        "\n"
+        "THEOREM ExamplesCorrect == Correct => Correct\n"
+        "  OBVIOUS\n"
         "====\n"
         "```\n"
         "```cfg\n"

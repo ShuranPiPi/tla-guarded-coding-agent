@@ -15,7 +15,7 @@ The model abstracts LLM behavior as nondeterministic booleans:
 |---|---|
 | `workflow` | `pc` |
 | `spec_result["passed"]` | `specOk` |
-| TLC check completed | `specChecked` |
+| selected checker completed | `specChecked` |
 | `spec_tests` derived from verified bundle | `testsDerived` |
 | `last_result["passed"]` | `codeOk` |
 | Python test completed | `codeChecked` |
@@ -24,13 +24,13 @@ The model abstracts LLM behavior as nondeterministic booleans:
 ## Checked properties
 
 - `SpecCheckedBeforeCode`: Python generation/testing cannot start until the
-  TLA+ spec has passed TLC and spec-derived tests exist.
+  TLA+ spec has passed the selected checker and spec-derived tests exist.
 - `NoDoneWithoutVerifiedSpec`: `Done` requires both a verified spec and passing
   Python tests.
 - `SpecFailOnlyAfterBudget`: spec failure is reachable only after the spec
   retry budget is exhausted.
 - `CodeFailPreservesSpecSuccess`: Python failure does not erase the fact that
-  the spec passed TLC.
+  the spec passed the selected checker.
 - `BoundedRetries`: both retry counters stay within their budgets.
 - `EventuallyTerminates`: under weak fairness, the workflow eventually reaches
   `Done`, `CodeFail`, or `SpecFail`.

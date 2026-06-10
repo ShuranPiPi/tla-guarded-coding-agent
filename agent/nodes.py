@@ -1,4 +1,4 @@
-"""LangGraph nodes for the TLC-spec-guarded coding agent."""
+"""LangGraph nodes for the formal-spec-guarded coding agent."""
 from __future__ import annotations
 
 import os
@@ -14,6 +14,7 @@ from .specs import (
 )
 from .state import AgentState, SpecMode, SpecResult, TestResult
 from .tlc import run_tlc
+from .tlaps import run_tlaps
 from .tools import run_tests
 
 
@@ -65,7 +66,7 @@ Correct == \\A e \\in Examples : ValidExample(e)
 LOW_LEVEL_SPECIFICATION_EXAMPLE = r"""
 ```tla
 ---- MODULE TwoSumSpecificationSpec ----
-EXTENDS Naturals, Integers, Sequences, TLC
+EXTENDS Naturals, Integers, Sequences, TLAPS
 
 VARIABLES idx, checked
 
@@ -75,6 +76,7 @@ Examples == <<
 >>
 
 NumExamples == Len(Examples)
+ExampleIds == 1..NumExamples
 
 ValidExample(e) ==
     /\ e.out[1] < e.out[2]
@@ -87,7 +89,7 @@ Init ==
     /\ checked = {}
 
 CheckOne ==
-    /\ idx \in 1..NumExamples
+    /\ idx \in ExampleIds
     /\ checked' = checked \cup {idx}
     /\ idx' = idx + 1
 
@@ -101,11 +103,14 @@ Spec == Init /\ [][Next]_<<idx, checked>>
 
 TypeOK ==
     /\ idx \in 1..(NumExamples + 1)
-    /\ checked \subseteq 1..NumExamples
+    /\ checked \subseteq ExampleIds
 
-Correct == \A j \in checked : ValidExample(Examples[j])
+Correct == \A j \in ExampleIds : ValidExample(Examples[j])
 
-Safety == checked = 1..NumExamples => idx = NumExamples + 1
+Safety == checked = ExampleIds => idx = NumExamples + 1
+
+THEOREM ExamplesCorrect == Correct
+  BY DEF Correct, ValidExample, Examples, ExampleIds, NumExamples
 ====
 ```
 ```json
@@ -167,20 +172,25 @@ Public tests for context only:
 
 Goal:
 Write a structured task specification, then encode a low-level finite TLA+
-state machine that TLC can check. This mode is allowed to be simple and finite:
-it should validate the finite input/output examples captured in the
-specification, not prove the algorithm for every possible input.
+state machine with a TLAPS proof. This mode is allowed to be simple and finite:
+it should prove that the finite input/output examples captured in the
+specification satisfy the TLA predicate `ValidExample`, not prove the algorithm
+for every possible input.
 
 Hard rules for the TLA+ block:
 - Use explicit low-level state variables named idx and checked.
+- Extend TLAPS, not TLC.
 - Define Examples as a finite TLA+ sequence of records.
 - Define these operators exactly: Init, CheckOne, Done, Next, Spec, TypeOK,
   Correct, Safety.
 - CheckOne should advance through the finite examples by adding idx to checked.
-- Correct should assert that every checked example satisfies ValidExample.
+- Correct should assert that every finite example satisfies ValidExample.
 - Safety should assert the terminal checked/idx relationship.
+- Include exactly one theorem named ExamplesCorrect:
+  THEOREM ExamplesCorrect == Correct
+    BY DEF Correct, ValidExample, Examples, ExampleIds, NumExamples
 - Use 1-based TLA+ sequence indexes, even when Python tests use 0-based indexes.
-- Do not use PlusCal, TLAPS, Reals, Nat, CHOOSE, recursion, or unbounded sets.
+- Do not use PlusCal, Reals, Nat, CHOOSE, recursion, or unbounded sets.
 - End the module with ====.
 
 Hard rules for the JSON block:
@@ -196,9 +206,9 @@ Examples, ValidExample, specification JSON, and spec_tests:
 """
 
 SPEC_REPAIR_SYS = (
-    "You repair TLA+ specs so TLC can check them. Preserve the task intent, "
-    "but prioritize producing a syntactically valid, finite, TLC-checkable module. "
-    "Use the finite-state template from the prompt; do not invent a new style."
+    "You repair finite TLA+ spec bundles so the selected formal checker can accept them. "
+    "Preserve the task intent, but prioritize a syntactically valid module that follows "
+    "the template in the prompt. Do not invent a new style."
 )
 
 CODE_SYS = (
@@ -263,16 +273,25 @@ def check_spec_node(state: AgentState) -> AgentState:
             "history": state.get("history", []) + ["CheckSpec -> parse failed"],
         }
 
-    tlc_result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
-    result = _spec_result_from_tlc(tlc_result)
+    if _uses_tlaps(state):
+        proof_result = run_tlaps(bundle.module, bundle.tla)
+        result = _spec_result_from_tlaps(proof_result)
+        passed = proof_result.passed
+    else:
+        tlc_result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
+        result = _spec_result_from_tlc(tlc_result)
+        passed = tlc_result.passed
     update: AgentState = {
         "spec_result": result,
         "structured_spec": bundle.structured_spec,
         "workflow": "CheckSpec",
         "history": state.get("history", [])
-        + [f"CheckSpec -> {'pass' if tlc_result.passed else 'fail'} ({bundle.module})"],
+        + [
+            f"CheckSpec -> {'pass' if passed else 'fail'} "
+            f"({'TLAPS' if _uses_tlaps(state) else 'TLC'}:{bundle.module})"
+        ],
     }
-    if tlc_result.passed:
+    if passed:
         update.update({
             "tla_spec": bundle.tla,
             "tla_cfg": bundle.cfg,
@@ -301,7 +320,7 @@ def repair_spec_node(state: AgentState) -> AgentState:
         f"Problem:\n{state['problem']}\n\n"
         f"Required signature:\n{state['signature']}\n\n"
         f"Previous bundle:\n{state.get('spec_bundle_raw', '')}\n\n"
-        f"TLC or parser error:\n{_spec_error(state)}\n\n"
+        f"Formal checker or parser error:\n{_spec_error(state)}\n\n"
         f"Likely fix:\n{_repair_advice(_spec_error(state))}\n\n"
         f"Rewrite the bundle using this known-good template style for mode "
         f"{state.get('spec_mode', 'example')!r}:\n"
@@ -394,7 +413,7 @@ def repair_code_node(state: AgentState) -> AgentState:
 def done_node(state: AgentState) -> AgentState:
     return {
         "workflow": "Done",
-        "terminal_reason": "spec verified by TLC and Python passed spec-derived tests",
+        "terminal_reason": "spec passed the selected formal checker and Python passed spec-derived tests",
         "history": state.get("history", []) + ["-> Done"],
     }
 
@@ -402,7 +421,7 @@ def done_node(state: AgentState) -> AgentState:
 def code_fail_node(state: AgentState) -> AgentState:
     return {
         "workflow": "CodeFail",
-        "terminal_reason": "spec verified by TLC, but Python did not pass spec-derived tests",
+        "terminal_reason": "spec passed the selected formal checker, but Python did not pass spec-derived tests",
         "history": state.get("history", []) + ["-> CodeFail"],
     }
 
@@ -410,7 +429,7 @@ def code_fail_node(state: AgentState) -> AgentState:
 def spec_fail_node(state: AgentState) -> AgentState:
     return {
         "workflow": "SpecFail",
-        "terminal_reason": _spec_error(state) or "unable to produce a TLC-valid spec",
+        "terminal_reason": _spec_error(state) or "unable to pass the selected formal spec checker",
         "history": state.get("history", []) + ["-> SpecFail"],
     }
 
@@ -483,7 +502,7 @@ def _code_prompt(state: AgentState, previous_code: str) -> str:
         f"Problem:\n{state['problem']}\n\n"
         f"Required signature:\n{state['signature']}\n\n"
         f"{structured}"
-        f"TLC-checked TLA+ spec:\n```tla\n{state.get('tla_spec', '')}\n```\n\n"
+        f"{_checker_name(state)}-checked TLA+ spec:\n```tla\n{state.get('tla_spec', '')}\n```\n\n"
         f"Spec-derived Python tests:\n" + "\n".join(state.get("spec_tests", [])) + "\n"
         f"{previous}\nWrite the function. Do not include tests."
     )
@@ -513,11 +532,11 @@ def _spec_system(state: AgentState) -> str:
     if state.get("spec_mode") == "specification":
         return (
             "You first write a concise structured task specification, then encode it "
-            "as a low-level finite TLA+ state machine that TLC can model-check. "
+            "as a low-level finite TLA+ state machine with a TLAPS proof. "
             "Use the low-level idx/checked template in the user prompt almost verbatim. "
-            "Do not use PlusCal, TLAPS, Reals, Nat, CHOOSE, recursion, or unbounded sets. "
-            "Output fenced ```tla``` and ```json``` blocks. A ```cfg``` block is optional "
-            "because the controller will synthesize cfg from the TLA definitions."
+            "Do not use PlusCal, Reals, Nat, CHOOSE, recursion, or unbounded sets. "
+            "Output fenced ```tla``` and ```json``` blocks. The TLA must include "
+            "a theorem named ExamplesCorrect that TLAPS can prove."
         )
     return SPEC_SYS
 
@@ -533,6 +552,28 @@ def _spec_mode(state: AgentState) -> SpecMode:
     if mode not in {"example", "specification"}:
         mode = "example"
     return mode  # type: ignore[return-value]
+
+
+def _uses_tlaps(state: AgentState) -> bool:
+    return state.get("spec_mode") == "specification"
+
+
+def _checker_name(state: AgentState) -> str:
+    return "TLAPS" if _uses_tlaps(state) else "TLC"
+
+
+def _spec_result_from_tlaps(proof_result) -> SpecResult:
+    stdout = proof_result.stdout
+    if proof_result.obligations is not None:
+        stdout = f"TLAPS obligations proved: {proof_result.obligations}\n{stdout}"
+    return {
+        "passed": proof_result.passed,
+        "module": proof_result.module,
+        "stdout": stdout,
+        "stderr": proof_result.stderr,
+        "error": proof_result.error,
+        "states_found": None,
+    }
 
 
 def _repair_advice(error: str) -> str:

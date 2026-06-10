@@ -24,6 +24,7 @@ def run_once(task: dict, spec_mode: str) -> dict:
     final = run_agent(task, spec_mode=spec_mode)
     elapsed = time.perf_counter() - start
     spec_result = final.get("spec_result") or {}
+    checker = "TLAPS" if final.get("spec_mode", spec_mode) == "specification" else "TLC"
     spec_ok = bool(spec_result.get("passed"))
     code_ok = final["workflow"] == "Done"
     hidden_ok = False
@@ -32,10 +33,11 @@ def run_once(task: dict, spec_mode: str) -> dict:
     return {
         "task": task["name"],
         "mode": final.get("spec_mode", spec_mode),
+        "checker": checker,
         "spec": spec_ok,
         "code": code_ok,
         "hidden": hidden_ok,
-        "states": spec_result.get("states_found"),
+        "metric": spec_result.get("states_found") if checker == "TLC" else _obligations(spec_result),
         "seconds": elapsed,
         "spec_retries": final.get("spec_retries", 0),
         "code_retries": final.get("code_retries", 0),
@@ -61,17 +63,18 @@ def main() -> int:
             rows.append(run_once(task, mode))
 
     print(
-        f"{'task':<20} {'mode':<14} {'spec':<6} {'code':<6} {'hidden':<8} "
-        f"{'states':<7} {'sec':<7} {'sret':<5} {'cret':<5} state"
+        f"{'task':<20} {'mode':<14} {'checker':<7} {'spec':<6} {'code':<6} {'hidden':<8} "
+        f"{'metric':<7} {'sec':<7} {'sret':<5} {'cret':<5} state"
     )
     for row in rows:
         print(
             f"{row['task']:<20} "
             f"{row['mode']:<14} "
+            f"{row['checker']:<7} "
             f"{'yes' if row['spec'] else 'no':<6} "
             f"{'yes' if row['code'] else 'no':<6} "
             f"{'yes' if row['hidden'] else 'no':<8} "
-            f"{str(row['states']):<7} "
+            f"{str(row['metric']):<7} "
             f"{row['seconds']:<7.2f} "
             f"{row['spec_retries']:<5} "
             f"{row['code_retries']:<5} {row['workflow']}"
@@ -81,6 +84,17 @@ def main() -> int:
     code_count = sum(1 for row in rows if row["code"])
     print(f"\nSummary: {spec_count}/{len(rows)} spec, {code_count}/{len(rows)} code")
     return 0
+
+
+def _obligations(spec_result: dict) -> int | None:
+    stdout = str(spec_result.get("stdout") or "")
+    for line in stdout.splitlines():
+        if line.startswith("TLAPS obligations proved:"):
+            try:
+                return int(line.split(":", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
 
 
 if __name__ == "__main__":

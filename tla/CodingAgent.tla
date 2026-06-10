@@ -1,10 +1,10 @@
 ------------------------------ MODULE CodingAgent ------------------------------
 (*****************************************************************************
-  Controller model for the TLC-spec-guarded coding agent.
+  Controller model for the formal-spec-guarded coding agent.
 
   The model abstracts LLM output and Python test outcomes as nondeterministic
   booleans. It verifies workflow-level guarantees:
-    - Python code generation cannot start before a TLC-checked spec succeeds.
+    - Python code generation cannot start before the selected checker succeeds.
     - Done requires both a verified spec and passing code tests.
     - Spec and code retry budgets are bounded.
     - The workflow eventually reaches Done, CodeFail, or SpecFail.

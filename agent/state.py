@@ -30,7 +30,7 @@ class TestResult(TypedDict):
 
 
 class SpecResult(TypedDict):
-    """Outcome of parsing and TLC-checking a generated spec bundle."""
+    """Outcome of parsing and checking a generated spec bundle."""
 
     passed: bool
     module: str

@@ -1,4 +1,4 @@
-"""Run the TLC-spec-guarded agent on one sample task and print the trace."""
+"""Run the formal-spec-guarded agent on one sample task and print the trace."""
 from __future__ import annotations
 
 import json
@@ -33,7 +33,12 @@ def main(task_name: str = "two_sum", spec_mode: str = "example") -> None:
     print(" ", "mode:", final.get("spec_mode", spec_mode))
     print(" ", "passed" if spec_result.get("passed") else "failed")
     print(" ", "module:", spec_result.get("module", ""))
-    print(" ", "states:", spec_result.get("states_found"))
+    checker = "TLAPS" if final.get("spec_mode", spec_mode) == "specification" else "TLC"
+    print(" ", "checker:", checker)
+    if checker == "TLAPS":
+        print(" ", "obligations:", _tlaps_obligations(spec_result))
+    else:
+        print(" ", "states:", spec_result.get("states_found"))
     if spec_result.get("error"):
         print(" ", "error:", spec_result["error"])
 
@@ -44,6 +49,17 @@ def main(task_name: str = "two_sum", spec_mode: str = "example") -> None:
     print(final.get("code", ""))
     print("\n--- Retries used ---")
     print(" ", "spec:", final.get("spec_retries", 0), "code:", final.get("code_retries", 0))
+
+
+def _tlaps_obligations(spec_result: dict) -> int | None:
+    stdout = str(spec_result.get("stdout") or "")
+    for line in stdout.splitlines():
+        if line.startswith("TLAPS obligations proved:"):
+            try:
+                return int(line.split(":", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
 
 
 if __name__ == "__main__":

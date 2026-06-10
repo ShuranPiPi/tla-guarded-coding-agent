@@ -11,3 +11,5 @@ report_midterm.pdf
 doc/
 generated/
 ce356_report/
+.tlacache/
+states/

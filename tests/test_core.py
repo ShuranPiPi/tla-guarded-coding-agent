@@ -8,6 +8,7 @@ from agent.llm import LLMUnavailableError, fallback_provider, select_provider
 from agent.nodes import LOW_LEVEL_SPECIFICATION_EXAMPLE, init_node, route_after_code_test, route_after_spec_check
 from agent.specs import SpecBundleError, deterministic_fallback_bundle, parse_spec_bundle
 from agent.tlc import run_tlc
+from agent.tlaps import run_tlaps
 
 
 GOOD_BUNDLE = """```tla
@@ -115,11 +116,19 @@ class TLCRunnerTests(unittest.TestCase):
         self.assertTrue(result.passed, result.error)
         self.assertEqual(result.returncode, 0)
 
-    def test_low_level_specification_template_tlc_success(self) -> None:
+    def test_low_level_specification_template_tlaps_success(self) -> None:
         bundle = parse_spec_bundle(LOW_LEVEL_SPECIFICATION_EXAMPLE)
-        result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
+        result = run_tlaps(bundle.module, bundle.tla)
         self.assertTrue(result.passed, result.error)
-        self.assertEqual(result.states_found, 3)
+        self.assertEqual(result.obligations, 1)
+
+    def test_tlaps_failure(self) -> None:
+        result = run_tlaps(
+            "BrokenProof",
+            "---- MODULE BrokenProof ----\nEXTENDS TLAPS\nTHEOREM Bad == FALSE\n  OBVIOUS\n====",
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(result.error)
 
     def test_tlc_failure(self) -> None:
         result = run_tlc(

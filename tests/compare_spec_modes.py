@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.specs import deterministic_fallback_bundle, parse_spec_bundle  # noqa: E402
 from agent.tlc import run_tlc  # noqa: E402
+from agent.tlaps import run_tlaps  # noqa: E402
 
 TASKS_PATH = Path(__file__).resolve().parent.parent / "tasks" / "sample_tasks.json"
 
@@ -25,13 +26,21 @@ def run_one(task: dict, mode: str) -> dict:
     raw = deterministic_fallback_bundle(task["signature"], task.get("public_tests", []), mode)
     bundle = parse_spec_bundle(raw)
     start = time.perf_counter()
-    result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
+    if mode == "specification":
+        result = run_tlaps(bundle.module, bundle.tla)
+        checker = "TLAPS"
+        metric = result.obligations
+    else:
+        result = run_tlc(bundle.module, bundle.tla, bundle.cfg)
+        checker = "TLC"
+        metric = result.states_found
     elapsed = time.perf_counter() - start
     return {
         "task": task["name"],
         "mode": mode,
+        "checker": checker,
         "passed": result.passed,
-        "states": result.states_found,
+        "metric": metric,
         "seconds": elapsed,
         "module": bundle.module,
         "structured": bool(bundle.structured_spec),
@@ -50,18 +59,18 @@ def main() -> int:
             for mode in ("example", "specification"):
                 rows.append(run_one(task, mode))
 
-    print("| task | mode | pass/runs | mean states | mean TLC seconds | structured spec |")
-    print("|---|---:|---:|---:|---:|---:|")
+    print("| task | mode | checker | pass/runs | mean states/obligations | mean checker seconds | structured spec |")
+    print("|---|---:|---:|---:|---:|---:|---:|")
     for task in tasks:
         for mode in ("example", "specification"):
             subset = [r for r in rows if r["task"] == task["name"] and r["mode"] == mode]
             passed = sum(1 for r in subset if r["passed"])
-            states = [r["states"] for r in subset if r["states"] is not None]
+            metrics = [r["metric"] for r in subset if r["metric"] is not None]
             seconds = [r["seconds"] for r in subset]
             structured = any(r["structured"] for r in subset)
             print(
-                f"| {task['name']} | {mode} | {passed}/{len(subset)} | "
-                f"{statistics.mean(states):.1f} | {statistics.mean(seconds):.3f} | "
+                f"| {task['name']} | {mode} | {subset[0]['checker']} | {passed}/{len(subset)} | "
+                f"{statistics.mean(metrics):.1f} | {statistics.mean(seconds):.3f} | "
                 f"{'yes' if structured else 'no'} |"
             )
     return 0

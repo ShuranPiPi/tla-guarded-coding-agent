@@ -1,4 +1,4 @@
-"""Wire the nodes into the TLC-spec-guarded LangGraph state machine."""
+"""Wire the nodes into the formal-spec-guarded LangGraph state machine."""
 from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
